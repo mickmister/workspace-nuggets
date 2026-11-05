@@ -13,6 +13,7 @@ import (
 
 const usage = `Usage:
   nugs workspace inspect --remote URL --workspace ID
+  nugs workspace provision --remote URL --workspace ID --root DIR --repo RELPATH [--repo RELPATH] [--expected VERSION]
   nugs documents list --remote URL --workspace ID
   nugs documents read --remote URL --workspace ID --name NAME
   nugs documents upsert --remote URL --workspace ID --name NAME [--expected VERSION] [--file FILE|-]
@@ -22,6 +23,11 @@ All document commands emit JSON. Omit --expected (or use an empty value) for
 create-only; pass the observed version for an update. Upsert reads stdin by
 default. --cache selects storage for retained failed publication intents.
 `
+
+type repositoryFlags []string
+
+func (r *repositoryFlags) String() string         { return fmt.Sprint([]string(*r)) }
+func (r *repositoryFlags) Set(value string) error { *r = append(*r, value); return nil }
 
 func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" {
@@ -47,6 +53,9 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 	name := flags.String("name", "", "relative document name")
 	expected := flags.String("expected", "", "observed version; empty means create only")
 	file := flags.String("file", "-", "content file or - for stdin")
+	root := flags.String("root", ".", "workspace root for repository memberships")
+	var repositories repositoryFlags
+	flags.Var(&repositories, "repo", "repository path relative to --root; repeat for all memberships")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -62,7 +71,7 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 		}
 		return 0
 	}
-	req := Request{Operation: operation, Workspace: *workspace, Name: *name, ExpectedVersion: *expected}
+	req := Request{Operation: operation, Workspace: *workspace, Name: *name, ExpectedVersion: *expected, Root: *root, Repositories: repositories}
 	if operation == "documents.upsert" {
 		var err error
 		if *file == "-" {

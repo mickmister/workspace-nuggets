@@ -59,12 +59,53 @@ Workspace IDs accept letters, digits, hyphens and underscores. Use a durable
 workspace identity rather than assuming a branch name uniquely identifies all
 repositories in a workspace. Document names are safe relative paths.
 
+## Provision a workspace manifest
+
+```sh
+nugs workspace provision --remote "$REMOTE" --workspace feature-123 \
+  --root /path/to/workspace --repo application --repo shared-library
+nugs workspace inspect --remote "$REMOTE" --workspace feature-123
+```
+
+Select every repository membership explicitly with repeated `--repo` flags.
+Repository paths are relative to `--root`; absolute paths within that root also
+work. Provisioning observes the selected local repositories and writes the
+reserved `workspace/manifest.json` resource in the existing document ref. It
+requires a committed HEAD in each selected repository. To refresh it, pass
+`--expected` with the `manifest_version` from inspection.
+
+The versioned manifest contains:
+
+- Workspace identity, schema version and observation timestamp.
+- All selected repository membership paths relative to the workspace root.
+- Each current full branch ref and exact commit OID, or explicit detached HEAD.
+- Working-tree dirty state and configured fetch remotes, with URL auth fields
+  removed from observed HTTP URLs and passwords removed from SSH URLs.
+- `publication: "unverified"` or `"no_remote"`; capturing a commit does not prove
+  its branch/objects exist on another machine.
+
+Inspection returns the parsed manifest and version from the same fetched commit
+as its document list. The manifest is schema-validated before publication,
+including after automatic reconciliation. Source observations are sequential,
+not an atomic multi-repository snapshot; HEAD/branch changes detected during an
+individual repository observation cause a retryable failure.
+
+This is a **branch-pointer manifest**, not a workspace restore or source-code
+backup. Provisioning does not create/push source branches, upload Git bundles,
+copy uncommitted changes, configure source remotes, or initialize Beads. Base/PR
+relationships and verification that source commits are remotely fetchable remain
+future identity/materialization work. Ordinary document refs work with an empty
+storage repository; no default source branch needs to be created.
+
 ## Use from an MCP client
 
 Launch `nugs mcp --remote "$REMOTE"` as a stdio MCP server. The remote is bound at
 launch; every tool request selects its workspace explicitly. Available tools:
 
-- `workspace_inspect`: `{ "workspace": "feature-123" }` — current document view.
+- `workspace_inspect`: `{ "workspace": "feature-123" }` — manifest, version and
+  current document view; manifest is absent for an unprovisioned workspace.
+- `workspace_provision`: `workspace`, explicit local `root`, `repositories` array,
+  and `expected_version` (empty for create only).
 - `documents_list`: same input; returns resource URIs and versions.
 - `document_read`: add `"name": "reviews/design.md"`.
 - `document_upsert`: add `"name"`, `"expected_version"` (empty for create only),
@@ -120,6 +161,9 @@ cross-client exact bytes, workspace isolation, idempotency, stale versions,
 concurrent creation, independent and same-file clean merges, real conflicts,
 retry exhaustion, rejected publication and retained recovery evidence. The server
 has no authentication because it contains only isolated synthetic test data.
+Manifest tests cover multi-repository branch/commit pointers, detached HEAD,
+dirty and missing-remote states, credential stripping, version-checked updates,
+invalid manifests and CLI/MCP provisioning parity.
 
 The optional Dolt experiment uses synthetic tables and disposable local remotes.
 It verifies native custom-ref transport, independent merges and same-row conflicts,

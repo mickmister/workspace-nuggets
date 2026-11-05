@@ -20,6 +20,8 @@ type Request struct {
 	Name            string
 	ExpectedVersion string
 	Content         []byte
+	Root            string
+	Repositories    []string
 }
 
 type DocumentView struct {
@@ -29,12 +31,15 @@ type DocumentView struct {
 }
 
 type Response struct {
-	Workspace string          `json:"workspace"`
-	Ref       string          `json:"ref"`
-	Resources []Resource      `json:"resources,omitempty"`
-	Document  *DocumentView   `json:"document,omitempty"`
-	Receipt   *Receipt        `json:"receipt,omitempty"`
-	Error     *OperationError `json:"error,omitempty"`
+	Workspace       string          `json:"workspace"`
+	Ref             string          `json:"ref"`
+	Resources       []Resource      `json:"resources,omitempty"`
+	Document        *DocumentView   `json:"document,omitempty"`
+	Receipt         *Receipt        `json:"receipt,omitempty"`
+	Error           *OperationError `json:"error,omitempty"`
+	Manifest        *Manifest       `json:"manifest,omitempty"`
+	ManifestVersion string          `json:"manifest_version,omitempty"`
+	Commit          string          `json:"commit,omitempty"`
 }
 
 func ResourceURI(workspace, name string) string {
@@ -46,7 +51,17 @@ func (s Service) Execute(ctx context.Context, req Request) Response {
 	res := Response{Workspace: req.Workspace, Ref: store.Ref()}
 	var err error
 	switch req.Operation {
-	case "workspace.inspect", "documents.list":
+	case "workspace.inspect":
+		var snapshot WorkspaceSnapshot
+		snapshot, err = store.Inspect(ctx)
+		res.Resources, res.Manifest, res.ManifestVersion, res.Commit = snapshot.Resources, snapshot.Manifest, snapshot.ManifestVersion, snapshot.Commit
+	case "workspace.provision":
+		var receipt Receipt
+		res.Manifest, receipt, err = store.Provision(ctx, req.Root, req.Repositories, req.ExpectedVersion)
+		if err == nil {
+			res.Receipt, res.ManifestVersion, res.Commit = &receipt, receipt.Version, receipt.Commit
+		}
+	case "documents.list":
 		res.Resources, err = store.List(ctx)
 	case "documents.read":
 		var doc Document

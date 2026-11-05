@@ -43,6 +43,7 @@ type Receipt struct {
 	Resource
 	Changed bool `json:"changed"`
 	Merged  bool `json:"merged"`
+	content []byte
 }
 
 // Conflict includes immutable commits for inspection with Git. For
@@ -234,6 +235,10 @@ func (s Store) List(ctx context.Context) ([]Resource, error) {
 	if err != nil {
 		return nil, err
 	}
+	return listAt(ctx, t, head)
+}
+
+func listAt(ctx context.Context, t *transaction, head string) ([]Resource, error) {
 	resources := []Resource{}
 	if head == "" {
 		return resources, nil
@@ -362,7 +367,7 @@ func (s Store) Upsert(ctx context.Context, name, expected string, content []byte
 		}
 		if bytes.Equal(doc.Content, content) {
 			keep = false
-			return Receipt{Resource: doc.Resource}, nil
+			return Receipt{Resource: doc.Resource, content: doc.Content}, nil
 		}
 	}
 	if base != "" {
@@ -376,6 +381,9 @@ func (s Store) Upsert(ctx context.Context, name, expected string, content []byte
 		return Receipt{}, failure("conflict", "document version changed; read before updating; local intent retained", base, "")
 	}
 	for attempt := 0; attempt < 3; attempt++ {
+		if err := validateManifestAt(ctx, t, local, s.Workspace); err != nil {
+			return Receipt{}, failure("invalid_manifest", "workspace manifest validation failed; local intent retained", lastRemote, err.Error())
+		}
 		_, pushErr := t.git(ctx, nil, "push", t.remote, local+":"+s.Ref())
 		if pushErr == nil {
 			doc, err := readAt(ctx, t, local, name)
@@ -383,7 +391,7 @@ func (s Store) Upsert(ctx context.Context, name, expected string, content []byte
 				return Receipt{}, err
 			}
 			keep = false
-			return Receipt{Resource: doc.Resource, Changed: true, Merged: merged}, nil
+			return Receipt{Resource: doc.Resource, Changed: true, Merged: merged, content: doc.Content}, nil
 		}
 		remote, err := s.fetch(ctx, t)
 		if err != nil {
@@ -398,7 +406,7 @@ func (s Store) Upsert(ctx context.Context, name, expected string, content []byte
 					return Receipt{}, err
 				}
 				keep = false
-				return Receipt{Resource: doc.Resource, Changed: true, Merged: merged}, nil
+				return Receipt{Resource: doc.Resource, Changed: true, Merged: merged, content: doc.Content}, nil
 			}
 		}
 		if remote == "" || remote == base {

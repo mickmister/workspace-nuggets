@@ -19,6 +19,13 @@ type readInput struct {
 	Name      string `json:"name" jsonschema:"Relative document resource name"`
 }
 
+type provisionInput struct {
+	Workspace       string   `json:"workspace"`
+	Root            string   `json:"root" jsonschema:"Explicit local workspace root on the server"`
+	Repositories    []string `json:"repositories" jsonschema:"Explicit local repository paths relative to root; include every membership"`
+	ExpectedVersion string   `json:"expected_version" jsonschema:"Observed manifest version; empty for create only"`
+}
+
 type upsertInput struct {
 	Workspace       string  `json:"workspace"`
 	Name            string  `json:"name"`
@@ -35,13 +42,16 @@ func toolResponse(response Response) (*mcp.CallToolResult, Response, error) {
 func NewMCPServer(service Service) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "nugs", Version: "0.1.0"}, nil)
 	for _, tool := range []struct{ name, operation, description string }{
-		{"workspace_inspect", "workspace.inspect", "Inspect the document resources of a selected workspace"},
+		{"workspace_inspect", "workspace.inspect", "Inspect a workspace manifest with repository branch pointers and document resources"},
 		{"documents_list", "documents.list", "Browse documents with versions and resource URIs"},
 	} {
 		mcp.AddTool(server, &mcp.Tool{Name: tool.name, Description: tool.description}, func(ctx context.Context, _ *mcp.CallToolRequest, in workspaceInput) (*mcp.CallToolResult, Response, error) {
 			return toolResponse(service.Execute(ctx, Request{Operation: tool.operation, Workspace: in.Workspace}))
 		})
 	}
+	mcp.AddTool(server, &mcp.Tool{Name: "workspace_provision", Description: "Observe explicitly selected local repository branches and publish a version-checked workspace manifest; does not push source code"}, func(ctx context.Context, _ *mcp.CallToolRequest, in provisionInput) (*mcp.CallToolResult, Response, error) {
+		return toolResponse(service.Execute(ctx, Request{Operation: "workspace.provision", Workspace: in.Workspace, Root: in.Root, Repositories: in.Repositories, ExpectedVersion: in.ExpectedVersion}))
+	})
 	mcp.AddTool(server, &mcp.Tool{Name: "document_read", Description: "Read exact document content and its observed version"}, func(ctx context.Context, _ *mcp.CallToolRequest, in readInput) (*mcp.CallToolResult, Response, error) {
 		return toolResponse(service.Execute(ctx, Request{Operation: "documents.read", Workspace: in.Workspace, Name: in.Name}))
 	})

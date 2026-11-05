@@ -350,7 +350,7 @@ func TestCLIAndStdioMCPOverHTTP(t *testing.T) {
 	}
 	defer session.Close()
 	tools, err := session.ListTools(ctx, nil)
-	if err != nil || len(tools.Tools) != 4 {
+	if err != nil || len(tools.Tools) != 5 {
 		t.Fatalf("MCP tool discovery: %+v, %v", tools, err)
 	}
 	call := func(name string, args map[string]any) (*mcp.CallToolResult, Response) {
@@ -408,5 +408,22 @@ func TestCLIAndStdioMCPOverHTTP(t *testing.T) {
 		if err != nil || len(resource.Contents) != 1 || !bytes.Equal(resource.Contents[0].Blob, content) {
 			t.Fatalf("MCP binary resource: %+v, %v", resource, err)
 		}
+	}
+	sourceRepository(t, g, "source")
+	provisioned, err := cli("workspace provision", "", "--root", g.root, "--repo", "source")
+	if err != nil || provisioned.Manifest == nil || provisioned.Receipt == nil {
+		t.Fatalf("CLI workspace provision: %+v, %v", provisioned, err)
+	}
+	result, inspected := call("workspace_inspect", map[string]any{"workspace": "cli-mcp"})
+	if result.IsError || inspected.Manifest == nil || inspected.ManifestVersion != provisioned.Receipt.Version {
+		t.Fatalf("MCP cannot inspect CLI manifest: %+v", inspected)
+	}
+	result, provisionedMCP := call("workspace_provision", map[string]any{"workspace": "cli-mcp", "root": g.root, "repositories": []string{"source"}, "expected_version": inspected.ManifestVersion})
+	if result.IsError || provisionedMCP.Manifest == nil || provisionedMCP.Receipt == nil {
+		t.Fatalf("MCP manifest upsert: %+v", provisionedMCP)
+	}
+	inspectedCLI, err := cli("workspace inspect", "")
+	if err != nil || inspectedCLI.ManifestVersion != provisionedMCP.Receipt.Version {
+		t.Fatalf("CLI cannot inspect MCP manifest: %+v, %v", inspectedCLI, err)
 	}
 }

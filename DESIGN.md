@@ -53,8 +53,19 @@ commit OIDs identify workspace document snapshots. Each request uses a separate
 bare transaction repository. Success removes it; failed publication or stale
 upserts retain the local intent ref and available remote evidence for inspection.
 Current operations cover workspace document inspection, list/read/upsert and MCP
-resource reads. Media type is inferred from the name; richer per-run provenance,
-multi-repo bindings and other kinds remain subsequent schema/adapter work.
+resource reads. Media type is inferred from the name; richer per-run provenance
+and other kinds remain subsequent schema/adapter work.
+
+`manifest.go` now implements initial multi-repository branch-pointer bindings.
+`workspace provision` (also `workspace_provision` in MCP) observes explicitly
+selected local repository roots and publishes schema-v1 `workspace/manifest.json`
+through the document backend. It captures portable membership paths, branch refs,
+commit OIDs, dirty/detached state, sanitized fetch remotes and explicit unverified/
+missing publication status. `workspace inspect` reads this manifest and documents
+from one fetched snapshot. Reserved manifest contents are validated before each
+push, including clean reconciliations. Source repositories are only observed;
+there is no source push, Git-object upload, checkout or restore. PR/base-ref
+relationships and actual remote-object availability checks remain future work.
 
 Common operations should expose explicit workspace identity, kind, ref and version:
 
