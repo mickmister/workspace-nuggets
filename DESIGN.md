@@ -48,7 +48,9 @@ with a conflicting second writer. A bare Dolt fixture does not test this lifecyc
 Common operations should expose explicit workspace identity, kind, ref and version:
 
 - Workspace inspection and local bindings, including all repo memberships.
-- Document list/read/update with the expected prior version, immutable commits,
+- Workspace-scoped resource browsing across the supported kinds, with stable
+  resource identities and actionable version/conflict receipts for agents.
+- Document list/read/upsert with the expected prior version, immutable commits,
   useful diff/review context and a new-version receipt.
 - Conversation import/list/read with an initial OpenCode exporter adapter.
 - Beads inspect/sync through native capabilities, with status/conflict receipts.
@@ -60,9 +62,16 @@ External `git`, `dolt`, `bd` and `opencode` are versioned storage/source adapter
 No ambient agent instruction or document text controls which ref/command executes.
 Commands use argument arrays and explicit workspace context, never shell interpolation.
 
-## Proposed "fix before push"
+Upserts create a missing resource or update an existing resource under its stable
+identity. Creation must detect concurrent creation; updates require the observed
+version so a stale agent cannot silently overwrite another edit. Repeating an
+unchanged upsert should not create duplicate resources. CLI and MCP expose the
+same semantics, including explicit workspace selection and inspectable failures.
 
-Default proposal: safe deterministic repair, **not an automatic content winner**.
+## Accepted "fix before push"
+
+The response to `nugs_git_reconcile_policy_v1` on `task-3vt.20` selects
+`native_clean_only`: safe deterministic repair, **not an automatic content winner**.
 
 1. Persist the user's local intended changes/version before network activity.
 2. Fetch the selected remote ref and compare its ancestry and logical versions.
@@ -77,23 +86,27 @@ Default proposal: safe deterministic repair, **not an automatic content winner**
    document/row evidence when automatic repair cannot preserve intent. Keep local
    work and remote history; no force push, blanket ours/theirs or wall-clock winner.
 
-An agent can inspect that conflict through MCP and propose an explicit resolution.
-Whether it may autonomously edit/resolve and publish is still a user decision.
+An agent can inspect that conflict through CLI/MCP. Automatic synchronization stops
+at real conflicts; resolution and subsequent publication are explicit operations.
+The tool does not invoke an agent to choose conflicting content or publish a winner.
 Git non-fast-forward rejection is not permission to rewrite remote history.
 OpenCode conversation identity should prevent duplicate ingestion while preserving
 legitimate repeated prompts, branches/retries and corrections.
 
+## Accepted Git confidentiality
+
+The same response selects `private_git_v1`: authenticated private Git access
+controls are sufficient for v1 Beads, documents and conversations. This explicitly
+supersedes the earlier generated-key client-side encryption requirement for these
+Git-backed components. Repository readers can read their content/history; custom
+refs are organizational namespaces, not separate confidentiality boundaries.
+Future S3/OTel confidentiality remains a separate backend decision.
+
+The user also permits code/file changes and emphasizes ergonomic workspace-scoped
+CLI/MCP resource browsing, including upserts. These two policy decisions no longer
+block Git-first implementation.
+
 ## Remaining decisions
-
-**Conflict authority:** Should repair stop at deterministic native merges and
-return conflicts, or may a tool-invoking agent resolve conflicting content and
-publish? A tool must not claim a conflict is resolved because a model chose text.
-
-**Git data confidentiality:** Earlier planning required generated-key client-side
-encryption. Native Dolt-in-Git plus directly mergeable text refs does not by itself
-implement that. Decide private Git access controls for v1 versus retaining a
-client-side encrypted transport/envelope. Do not claim credentials/private repo
-access equals shared-key encryption. Synthetic local tests contain no private data.
 
 **TTL semantics:** Deleting a ref is not guaranteed erasure: Git objects can remain
 in other refs/reflogs, provider retention and clones. Deleting active Dolt history

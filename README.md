@@ -6,8 +6,8 @@ A standalone Go CLI and MCP server for workspace-scoped agent context.
 
 Git-only storage, initially for **Beads, documents, and an OpenCode adapter**.
 Both the eventual CLI and stdio MCP server will call the same Go operations.
-Reviewing and updating documents from an agent should be straightforward and use
-explicit version/conflict receipts.
+Browsing workspace resources and upserting documents from an agent should be
+straightforward and use explicit version/conflict receipts.
 
 | Kind | Remote ref | Transport |
 | --- | --- | --- |
@@ -24,8 +24,9 @@ does not fetch them. Support for a ref namespace must be tested on the chosen
 Git host, not assumed from this local transport experiment.
 
 This initial repository contains the transport experiment and decisions below;
-it is **not yet a working CLI/MCP server**. Product implementation follows the
-remaining conflict/encryption decisions. No executable named `nugs` is claimed yet.
+it is **not yet a working CLI/MCP server**. The sync/confidentiality policies are
+settled: automatically reconcile clean native merges only, return real conflicts,
+and use private Git access controls for v1. No executable named `nugs` is claimed yet.
 
 ## Verify the Git/Dolt transport boundary
 
