@@ -136,19 +136,25 @@ func (s Store) begin(ctx context.Context) (*transaction, error) {
 		return nil, err
 	}
 	t := &transaction{dir: dir, workspace: s.Workspace, remote: remote}
-	for _, v := range os.Environ() {
-		key, _, _ := strings.Cut(v, "=")
-		if !strings.HasPrefix(key, "GIT_") {
-			t.env = append(t.env, v)
-		}
-	}
-	t.env = append(t.env, "GIT_TERMINAL_PROMPT=0", "GIT_AUTHOR_NAME=Workspace nuggets", "GIT_AUTHOR_EMAIL=nugs@example.invalid",
-		"GIT_COMMITTER_NAME=Workspace nuggets", "GIT_COMMITTER_EMAIL=nugs@example.invalid")
+	t.env = gitEnvironment()
 	if _, err := t.git(ctx, nil, "init", "--bare", "."); err != nil {
 		os.RemoveAll(dir)
 		return nil, err
 	}
 	return t, nil
+}
+
+func gitEnvironment() []string {
+	var env []string
+	for _, v := range os.Environ() {
+		key, _, _ := strings.Cut(v, "=")
+		if !strings.HasPrefix(key, "GIT_") {
+			env = append(env, v)
+		}
+	}
+	env = append(env, "GIT_TERMINAL_PROMPT=0", "GIT_AUTHOR_NAME=Workspace nuggets", "GIT_AUTHOR_EMAIL=nugs@example.invalid",
+		"GIT_COMMITTER_NAME=Workspace nuggets", "GIT_COMMITTER_EMAIL=nugs@example.invalid")
+	return env
 }
 
 func (t *transaction) git(ctx context.Context, input []byte, args ...string) ([]byte, error) {

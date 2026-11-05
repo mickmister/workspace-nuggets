@@ -33,20 +33,18 @@ Requires Go 1.25+ and Git 2.39+ (including `merge-tree --write-tree`).
 ```sh
 go install ./cmd/nugs
 
-# Select a data repository and a stable workspace ID explicitly.
-nugs workspace inspect --remote "$REMOTE" --workspace feature-123
-nugs documents list --remote "$REMOTE" --workspace feature-123
+# Configure the machine once; commands infer the current branch workspace.
+nugs config set --remote https://github.com/mickmister/workspace-storage.git
+nugs workspace inspect
+nugs documents list
 
 # Create only; reads exact bytes from a file, or stdin when --file is omitted.
-nugs documents upsert --remote "$REMOTE" --workspace feature-123 \
-  --name reviews/design.md --file ./design.md
+nugs documents upsert --name reviews/design.md --file ./design.md
 
-nugs documents read --remote "$REMOTE" --workspace feature-123 \
-  --name reviews/design.md
+nugs documents read --name reviews/design.md
 
 # Update using the version returned by read/list/upsert.
-nugs documents upsert --remote "$REMOTE" --workspace feature-123 \
-  --name reviews/design.md --expected "$VERSION" --file ./design.md
+nugs documents upsert --name reviews/design.md --expected "$VERSION" --file ./design.md
 ```
 
 All commands return JSON. Read results contain `content_base64` for exact bytes,
@@ -55,16 +53,44 @@ receipts also identify the published commit, SHA-256, byte length and inferred
 media type. An unchanged upsert with the current version creates no new commit.
 Omitting `--expected` means **create only**, not unconditional overwrite.
 
-Workspace IDs accept letters, digits, hyphens and underscores. Use a durable
-workspace identity rather than assuming a branch name uniquely identifies all
-repositories in a workspace. Document names are safe relative paths.
+## Machine config and workspace selection
+
+Config defaults to `nugs/config.json` under the machine's user config directory:
+`$XDG_CONFIG_HOME/nugs/config.json`, normally `~/.config/nugs/config.json` on Linux.
+It is not discovered from repository files. `nugs config show` prints its location
+and values; `nugs config set --remote URL [--cache DIR]` updates it atomically.
+
+```json
+{
+  "remote": "https://github.com/mickmister/workspace-storage.git"
+}
+```
+
+`--config FILE` selects a different config. `--remote` and `--cache` override its
+values for one command. Relative paths in config are resolved from that file's
+directory; `config set` converts local path arguments to absolute paths. An absent
+default config is allowed when flags provide a remote; an explicitly selected
+missing or malformed config is an error.
+
+Workspace defaults to the current branch slug: `vk/46e5-vd-multi-instanc` becomes
+`vk-46e5-vd-multi-instanc`. Slugs lowercase ASCII letters and digits and collapse
+punctuation into hyphens. Full branch refs remain in the manifest. When invoked
+from a non-Git workspace root, provisioning can infer a common branch from the
+explicitly selected repositories. Detached HEAD, disagreeing selected branches,
+or a branch with no supported slug require `--workspace ID`.
+
+`--workspace` can select another workspace, an existing UUID, or disambiguate
+branch names that normalize to the same slug. Storage remote and workspace slug
+together scope the resources; using a slug does not merge independent Beads
+collections. Existing UUID refs remain addressable. Explicit workspace IDs accept
+letters, digits, hyphens and underscores. Document names are safe relative paths.
 
 ## Provision a workspace manifest
 
 ```sh
-nugs workspace provision --remote "$REMOTE" --workspace feature-123 \
-  --root /path/to/workspace --repo application --repo shared-library
-nugs workspace inspect --remote "$REMOTE" --workspace feature-123
+nugs workspace provision --root /path/to/workspace \
+  --repo application --repo shared-library
+nugs workspace inspect
 ```
 
 Select every repository membership explicitly with repeated `--repo` flags.
@@ -99,8 +125,11 @@ storage repository; no default source branch needs to be created.
 
 ## Use from an MCP client
 
-Launch `nugs mcp --remote "$REMOTE"` as a stdio MCP server. The remote is bound at
-launch; every tool request selects its workspace explicitly. Available tools:
+Launch `nugs mcp` as a stdio MCP server. Remote/cache come from machine config;
+the default workspace is inferred from the launch directory's branch. Flags can
+override those defaults. Tool requests may omit `workspace` to use the server
+default, or select one explicitly. Outside a branch checkout, launch with
+`--workspace ID` or provide a workspace on every tool request. Available tools:
 
 - `workspace_inspect`: `{ "workspace": "feature-123" }` — manifest, version and
   current document view; manifest is absent for an unprovisioned workspace.
@@ -164,6 +193,8 @@ has no authentication because it contains only isolated synthetic test data.
 Manifest tests cover multi-repository branch/commit pointers, detached HEAD,
 dirty and missing-remote states, credential stripping, version-checked updates,
 invalid manifests and CLI/MCP provisioning parity.
+Config tests exercise machine-level discovery, flag/config precedence, branch
+slug inference, ambiguous/detached cases and omitted MCP workspace arguments.
 
 The optional Dolt experiment uses synthetic tables and disposable local remotes.
 It verifies native custom-ref transport, independent merges and same-row conflicts,

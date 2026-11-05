@@ -10,8 +10,9 @@ import (
 
 // Service is the common boundary used directly by CLI and MCP handlers.
 type Service struct {
-	Remote   string
-	CacheDir string
+	Remote           string
+	CacheDir         string
+	DefaultWorkspace string
 }
 
 type Request struct {
@@ -47,6 +48,9 @@ func ResourceURI(workspace, name string) string {
 }
 
 func (s Service) Execute(ctx context.Context, req Request) Response {
+	if req.Workspace == "" {
+		req.Workspace = s.DefaultWorkspace
+	}
 	store := Store{Remote: s.Remote, Workspace: req.Workspace, CacheDir: s.CacheDir}
 	res := Response{Workspace: req.Workspace, Ref: store.Ref()}
 	var err error

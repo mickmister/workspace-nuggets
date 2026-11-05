@@ -67,6 +67,15 @@ push, including clean reconciliations. Source repositories are only observed;
 there is no source push, Git-object upload, checkout or restore. PR/base-ref
 relationships and actual remote-object availability checks remain future work.
 
+Machine defaults now live at `os.UserConfigDir()/nugs/config.json` (normally
+`~/.config/nugs/config.json` on Linux), managed by `nugs config set/show`, with
+explicit `--config`, `--remote` and `--cache` overrides. Repository-local files
+are not auto-discovered. Workspace defaults to a readable current-branch slug;
+the full source ref remains in each repository pointer. Multi-repo root inference
+requires a common branch among explicitly selected repositories. Detached or
+ambiguous cases require an explicit workspace ID. CLI and MCP use the same default
+workspace through Service; existing UUID identifiers are still supported.
+
 Common operations should expose explicit workspace identity, kind, ref and version:
 
 - Workspace inspection and local bindings, including all repo memberships.

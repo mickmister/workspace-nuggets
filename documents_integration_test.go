@@ -339,7 +339,14 @@ func TestCLIAndStdioMCPOverHTTP(t *testing.T) {
 	if err != nil || created.Error != nil {
 		t.Fatalf("CLI create: %+v, %v", created, err)
 	}
-	cmd := exec.CommandContext(ctx, binary, "mcp", "--remote", g.url, "--cache", t.TempDir())
+	centralConfig, err := ConfigPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := saveConfig(centralConfig, Config{Remote: g.url}); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.CommandContext(ctx, binary, "mcp", "--workspace", "cli-mcp", "--cache", t.TempDir())
 	cmd.Env = g.env
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -372,6 +379,10 @@ func TestCLIAndStdioMCPOverHTTP(t *testing.T) {
 	_, listed := call("documents_list", map[string]any{"workspace": "cli-mcp"})
 	if len(listed.Resources) != 1 || listed.Resources[0].Name != "notes/review.md" {
 		t.Fatalf("MCP cannot browse CLI resource: %+v", listed)
+	}
+	_, defaultListed := call("documents_list", map[string]any{})
+	if defaultListed.Workspace != "cli-mcp" || len(defaultListed.Resources) != 1 {
+		t.Fatalf("MCP omitted workspace did not use server default: %+v", defaultListed)
 	}
 	_, read := call("document_read", map[string]any{"workspace": "cli-mcp", "name": "notes/review.md"})
 	if read.Document == nil || read.Document.Text == nil || *read.Document.Text != "from CLI\n" {

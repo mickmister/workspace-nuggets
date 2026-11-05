@@ -11,23 +11,23 @@ import (
 )
 
 type workspaceInput struct {
-	Workspace string `json:"workspace" jsonschema:"Stable workspace identifier"`
+	Workspace string `json:"workspace,omitempty" jsonschema:"Workspace slug; defaults to the server's branch workspace"`
 }
 
 type readInput struct {
-	Workspace string `json:"workspace"`
+	Workspace string `json:"workspace,omitempty"`
 	Name      string `json:"name" jsonschema:"Relative document resource name"`
 }
 
 type provisionInput struct {
-	Workspace       string   `json:"workspace"`
+	Workspace       string   `json:"workspace,omitempty"`
 	Root            string   `json:"root" jsonschema:"Explicit local workspace root on the server"`
 	Repositories    []string `json:"repositories" jsonschema:"Explicit local repository paths relative to root; include every membership"`
 	ExpectedVersion string   `json:"expected_version" jsonschema:"Observed manifest version; empty for create only"`
 }
 
 type upsertInput struct {
-	Workspace       string  `json:"workspace"`
+	Workspace       string  `json:"workspace,omitempty"`
 	Name            string  `json:"name"`
 	ExpectedVersion string  `json:"expected_version" jsonschema:"Observed blob version; empty string means create only"`
 	Text            *string `json:"text,omitempty" jsonschema:"UTF-8 content; supply exactly one of text or content_base64"`
