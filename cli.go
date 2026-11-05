@@ -18,6 +18,8 @@ const usage = `Usage:
   nugs config show
   nugs workspace inspect
   nugs workspace provision --root DIR --repo RELPATH [--repo RELPATH] [--expected VERSION]
+  nugs beads inspect [--root DIR]
+  nugs beads configure [--root DIR]
   nugs documents list
   nugs documents read --name NAME
   nugs documents upsert --name NAME [--expected VERSION] [--file FILE|-]
@@ -73,6 +75,9 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 	}
 	seen := map[string]bool{}
 	flags.Visit(func(f *flag.Flag) { seen[f.Name] = true })
+	if strings.HasPrefix(operation, "beads.") && !seen["root"] {
+		*root = "" // Discover the workspace redirect, never a repository database.
+	}
 	if *configFile == "" {
 		var err error
 		*configFile, err = ConfigPath()

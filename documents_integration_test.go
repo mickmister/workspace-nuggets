@@ -357,7 +357,7 @@ func TestCLIAndStdioMCPOverHTTP(t *testing.T) {
 	}
 	defer session.Close()
 	tools, err := session.ListTools(ctx, nil)
-	if err != nil || len(tools.Tools) != 5 {
+	if err != nil || len(tools.Tools) != 7 {
 		t.Fatalf("MCP tool discovery: %+v, %v", tools, err)
 	}
 	call := func(name string, args map[string]any) (*mcp.CallToolResult, Response) {

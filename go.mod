@@ -2,7 +2,10 @@ module workspace-nuggets
 
 go 1.25.0
 
-require github.com/modelcontextprotocol/go-sdk v1.4.1
+require (
+	github.com/gofrs/flock v0.12.1
+	github.com/modelcontextprotocol/go-sdk v1.4.1
+)
 
 require (
 	github.com/google/jsonschema-go v0.4.2 // indirect

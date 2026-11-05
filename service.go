@@ -41,6 +41,7 @@ type Response struct {
 	Manifest        *Manifest       `json:"manifest,omitempty"`
 	ManifestVersion string          `json:"manifest_version,omitempty"`
 	Commit          string          `json:"commit,omitempty"`
+	Beads           *BeadsInfo      `json:"beads,omitempty"`
 }
 
 func ResourceURI(workspace, name string) string {
@@ -55,6 +56,12 @@ func (s Service) Execute(ctx context.Context, req Request) Response {
 	res := Response{Workspace: req.Workspace, Ref: store.Ref()}
 	var err error
 	switch req.Operation {
+	case "beads.inspect":
+		res.Ref = "refs/dolt/" + req.Workspace
+		res.Beads, err = store.InspectBeads(ctx, req.Root)
+	case "beads.configure":
+		res.Ref = "refs/dolt/" + req.Workspace
+		res.Beads, err = store.ConfigureBeads(ctx, req.Root)
 	case "workspace.inspect":
 		var snapshot WorkspaceSnapshot
 		snapshot, err = store.Inspect(ctx)

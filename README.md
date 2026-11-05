@@ -6,8 +6,9 @@ A standalone Go CLI and MCP server for workspace-scoped agent context.
 
 Git-only storage, initially for **Beads, documents, and an OpenCode adapter**.
 The CLI and stdio MCP server now share Go operations for workspace document
-browsing, reading and version-checked upserts. Native Beads integration and the
-OpenCode conversation adapter are next; their namespaces below are reserved.
+browsing, reading and version-checked upserts. Workspace-owned Beads native remote
+configuration and inspection are also available. Existing `bd` operations own task
+editing and database sync; the OpenCode conversation adapter remains next.
 
 | Kind | Remote ref | Transport |
 | --- | --- | --- |
@@ -135,6 +136,8 @@ default, or select one explicitly. Outside a branch checkout, launch with
   current document view; manifest is absent for an unprovisioned workspace.
 - `workspace_provision`: `workspace`, explicit local `root`, `repositories` array,
   and `expected_version` (empty for create only).
+- `beads_inspect` / `beads_configure`: optional `workspace` and local workspace
+  `root`; omitted root discovers the outer workspace redirect from server cwd.
 - `documents_list`: same input; returns resource URIs and versions.
 - `document_read`: add `"name": "reviews/design.md"`.
 - `document_upsert`: add `"name"`, `"expected_version"` (empty for create only),
@@ -144,6 +147,51 @@ The server also advertises a `nugs://workspace/{workspace}/documents/{name}`
 resource template. Use the URI returned by listing rather than manually escaping
 names. Tool errors set MCP `isError` and retain structured error/conflict data.
 Protocol stdout contains only MCP messages.
+
+## Workspace-owned Beads
+
+One Beads collection belongs to the **workspace**, including all its repositories.
+Run native `bd` commands from the workspace root. `nugs` discovers the outer
+workspace `.beads/redirect`, resolves it using `bd where`, and inspects the existing
+collection rather than selecting a repository's `.beads` database. An explicit
+`--root` must contain that redirect. It never initializes databases in source repos.
+
+```sh
+# From a branch checkout inside the workspace; machine config supplies the remote.
+nugs beads inspect
+nugs beads configure
+
+# Outside a branch checkout, supply the readable workspace slug explicitly.
+nugs beads configure --root /path/to/workspace --workspace feature-workspace
+```
+
+Setup is idempotent. It reports the collection's stable Beads project ID, resolved
+storage paths, native mode/database, remote URL and `refs/dolt/<workspace-slug>`.
+It configures native `origin`, declares `sync.remote` through `bd config`, and
+clears `no-push` so explicit native pushes work. It does not enable auto-push,
+alter `no-git-ops`, commit task changes, pull, or push. An existing origin URL/ref
+or declaration pointing elsewhere is returned as a conflict, preserving the
+collection binding instead of repointing it after a branch change.
+
+The tested Beads 1.2.2 embedded backend stores this collection under
+`<resolved-beads-dir>/embeddeddolt/<database>`. Its `bd dolt remote add` lacks a
+custom-ref flag and embedded `bd sql` is unavailable, so setup uses the supported
+`dolt remote add --ref ...` in that verified directory, then confirms Beads sees
+the result. The ref is stored in native remote `params.git_ref`, **not** a URL
+query parameter. No engine files are manually rewritten. The Beads init lock
+serializes initialization and nugs setup; normal database concurrency remains
+owned by the embedded driver, not that init lock. Server/proxied backends are
+rejected by this initial setup path rather than opened as embedded databases.
+
+Native `bd list`, `bd show`, `bd dolt commit`, `bd dolt pull` and `bd dolt push`
+remain the task APIs. Remote configuration is not itself publication. The tested
+Dolt Git transport requires an ordinary initial branch/commit in the storage
+repository before its first push; custom document refs alone do not satisfy that
+prerequisite. Setup does not bootstrap a storage branch or publish live task data.
+
+For the current VD workspace, the root marker points to the persisted collection
+under `/var/lib/vd/beads/workspaces/<workspace-id>/.beads`, not either source repo.
+Native remote configuration follows that collection and retains its project ID.
 
 ## Reconciliation and recovery
 
@@ -181,6 +229,7 @@ go test ./...
 go test -race ./...
 go vet ./...
 NUGS_TEST_DOLT=1 go test -v -run TestNativeDoltGitRefs ./...
+NUGS_TEST_BEADS=1 go test -v -run TestWorkspaceBeads ./...
 ```
 
 Document integration tests use an ephemeral loopback smart-HTTP Git server with
@@ -195,6 +244,11 @@ dirty and missing-remote states, credential stripping, version-checked updates,
 invalid manifests and CLI/MCP provisioning parity.
 Config tests exercise machine-level discovery, flag/config precedence, branch
 slug inference, ambiguous/detached cases and omitted MCP workspace arguments.
+The opt-in Beads test creates an actual isolated workspace collection outside its
+repositories, configures it, checks issue/history preservation and idempotency,
+rejects repointing, then pushes only synthetic data with `bd` over local HTTP and
+recovers the issue from the workspace custom ref. Ambient/nested repo routing is
+ignored. It requires compatible `bd` and `dolt` binaries.
 
 The optional Dolt experiment uses synthetic tables and disposable local remotes.
 It verifies native custom-ref transport, independent merges and same-row conflicts,

@@ -19,6 +19,11 @@ type readInput struct {
 	Name      string `json:"name" jsonschema:"Relative document resource name"`
 }
 
+type beadsInput struct {
+	Workspace string `json:"workspace,omitempty"`
+	Root      string `json:"root,omitempty" jsonschema:"Workspace root with .beads/redirect; omitted discovers the outer workspace from server cwd"`
+}
+
 type provisionInput struct {
 	Workspace       string   `json:"workspace,omitempty"`
 	Root            string   `json:"root" jsonschema:"Explicit local workspace root on the server"`
@@ -47,6 +52,14 @@ func NewMCPServer(service Service) *mcp.Server {
 	} {
 		mcp.AddTool(server, &mcp.Tool{Name: tool.name, Description: tool.description}, func(ctx context.Context, _ *mcp.CallToolRequest, in workspaceInput) (*mcp.CallToolResult, Response, error) {
 			return toolResponse(service.Execute(ctx, Request{Operation: tool.operation, Workspace: in.Workspace}))
+		})
+	}
+	for _, tool := range []struct{ name, operation, description string }{
+		{"beads_inspect", "beads.inspect", "Inspect workspace-owned Beads collection identity and native Dolt remote/ref configuration"},
+		{"beads_configure", "beads.configure", "Configure the workspace Beads native origin and custom Git ref; does not initialize, pull or push task data"},
+	} {
+		mcp.AddTool(server, &mcp.Tool{Name: tool.name, Description: tool.description}, func(ctx context.Context, _ *mcp.CallToolRequest, in beadsInput) (*mcp.CallToolResult, Response, error) {
+			return toolResponse(service.Execute(ctx, Request{Operation: tool.operation, Workspace: in.Workspace, Root: in.Root}))
 		})
 	}
 	mcp.AddTool(server, &mcp.Tool{Name: "workspace_provision", Description: "Observe explicitly selected local repository branches and publish a version-checked workspace manifest; does not push source code"}, func(ctx context.Context, _ *mcp.CallToolRequest, in provisionInput) (*mcp.CallToolResult, Response, error) {

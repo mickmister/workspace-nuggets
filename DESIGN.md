@@ -43,6 +43,19 @@ adapter must resolve a selected workspace DB through supported Beads/Dolt contex
 flush/commit through that interface, and avoid opening a live engine directory
 with a conflicting second writer. A bare Dolt fixture does not test this lifecycle.
 
+The initial native setup is now implemented in `beads.go` as `beads configure` /
+`beads inspect` with matching MCP tools. It follows the outer workspace-root
+redirect through `bd where`, validates embedded metadata/collection identity and
+database layout, and sets native origin with `params.git_ref` using Dolt's
+supported remote command. It declares `sync.remote` and enables explicit push via
+`bd config`, preserving existing source-Git and auto-push policy. Setup does not
+initialize a repo database, publish tasks, or bootstrap a storage branch.
+Different existing URL/ref bindings are conflicts. The init lock coordinates
+setup/init only; normal command concurrency belongs to the native driver.
+Actual embedded Beads fixtures now exercise configure, issue/history preservation,
+native push and custom-ref recovery, beyond the original synthetic Dolt table test.
+Server/proxied setup and general synchronization orchestration remain follow-ups.
+
 ## Shared core and MCP ergonomics
 
 The initial document implementation is in `documents.go`, with shared dispatch in
