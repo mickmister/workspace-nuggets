@@ -10,6 +10,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+const agentArtifactInstructions = "Store intermediate artifacts (for example Beads form JSON, research captures and generated reports) as versioned workspace resources using documents upsert in the CLI or document_upsert in MCP. Do not commit intermediate artifacts to the source-code branch. Use logical resource names such as forms/workspace-composition.json, record the resource URI and version in the relevant bead, and use expected_version for updates. Maintained product code, documentation, schemas and reusable test fixtures remain source-controlled."
+
 type workspaceInput struct {
 	Workspace string `json:"workspace,omitempty" jsonschema:"Workspace slug; defaults to the server's branch workspace"`
 }
@@ -45,7 +47,7 @@ func toolResponse(response Response) (*mcp.CallToolResult, Response, error) {
 
 // NewMCPServer calls Service directly; no tool launches the nugs executable.
 func NewMCPServer(service Service) *mcp.Server {
-	server := mcp.NewServer(&mcp.Implementation{Name: "nugs", Version: "0.1.0"}, nil)
+	server := mcp.NewServer(&mcp.Implementation{Name: "nugs", Version: "0.1.0"}, &mcp.ServerOptions{Instructions: agentArtifactInstructions})
 	for _, tool := range []struct{ name, operation, description string }{
 		{"workspace_inspect", "workspace.inspect", "Inspect a workspace manifest with repository branch pointers and document resources"},
 		{"documents_list", "documents.list", "Browse documents with versions and resource URIs"},
@@ -68,7 +70,7 @@ func NewMCPServer(service Service) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{Name: "document_read", Description: "Read exact document content and its observed version"}, func(ctx context.Context, _ *mcp.CallToolRequest, in readInput) (*mcp.CallToolResult, Response, error) {
 		return toolResponse(service.Execute(ctx, Request{Operation: "documents.read", Workspace: in.Workspace, Name: in.Name}))
 	})
-	mcp.AddTool(server, &mcp.Tool{Name: "document_upsert", Description: "Create or version-check an update, reconcile clean changes and publish; real conflicts are returned"}, func(ctx context.Context, _ *mcp.CallToolRequest, in upsertInput) (*mcp.CallToolResult, Response, error) {
+	mcp.AddTool(server, &mcp.Tool{Name: "document_upsert", Description: "Store documents and intermediate artifacts such as form JSON outside source refs; create or version-check updates, reconcile clean changes and publish"}, func(ctx context.Context, _ *mcp.CallToolRequest, in upsertInput) (*mcp.CallToolResult, Response, error) {
 		var content []byte
 		var err error
 		switch {

@@ -31,7 +31,9 @@ Workspace defaults to the current branch slug; --workspace ID overrides it.
 All document commands emit JSON. Omit --expected (or use an empty value) for
 create-only; pass the observed version for an update. Upsert reads stdin by
 default. --cache selects storage for retained failed publication intents.
-`
+
+Agent workflow:
+` + agentArtifactInstructions + "\n"
 
 type repositoryFlags []string
 

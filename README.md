@@ -54,6 +54,25 @@ receipts also identify the published commit, SHA-256, byte length and inferred
 media type. An unchanged upsert with the current version creates no new commit.
 Omitting `--expected` means **create only**, not unconditional overwrite.
 
+## Intermediate agent artifacts
+
+Session-specific form JSON, decision drafts, research captures and generated
+reports belong in workspace nugget storage, not the source-code branch. Today
+these use the document backend, which preserves arbitrary exact bytes under
+`refs/documents/<workspace>`. A separate `refs/artifacts` backend is not required
+to keep them out of source refs.
+
+```sh
+nugs documents upsert --name forms/workspace-composition.json --file /tmp/opencode/form.json
+nugs documents read --name forms/workspace-composition.json
+```
+
+Record the returned resource URI/version in the bead, and attach forms using
+`beads-form` as well. Use the observed version for artifact updates. Repository
+`AGENTS.md`, CLI help and MCP initialization instructions communicate this workflow.
+Maintained project documentation, schemas and reusable test fixtures remain
+source-controlled; purpose, rather than a `.json` extension, determines placement.
+
 ## Machine config and workspace selection
 
 Config defaults to `nugs/config.json` under the machine's user config directory:
@@ -85,6 +104,17 @@ branch names that normalize to the same slug. Storage remote and workspace slug
 together scope the resources; using a slug does not merge independent Beads
 collections. Existing UUID refs remain addressable. Explicit workspace IDs accept
 letters, digits, hyphens and underscores. Document names are safe relative paths.
+
+Storage refs are derived from the selected workspace handle, not independently
+from every member repository's branch: `refs/documents/<workspace>` for documents
+and intermediate artifacts, and `refs/dolt/<workspace>` for the native Beads
+binding. `refs/conversations/<workspace>` is reserved for the planned adapter.
+When invoked inside a Git worktree, its current branch supplies the default even
+if another member repository has a different branch. The common-branch fallback
+applies only outside a Git worktree with explicit repository memberships. Different
+member branches remain explicit manifest bindings; they do not create multiple
+implicit workspace storage refs. Source branch renames change the inferred slug;
+use an explicit workspace handle to continue querying an older namespace.
 
 ## Provision a workspace manifest
 

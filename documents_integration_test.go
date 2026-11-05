@@ -356,6 +356,9 @@ func TestCLIAndStdioMCPOverHTTP(t *testing.T) {
 		t.Fatalf("stdio MCP connect: %v, %s", err, stderr.String())
 	}
 	defer session.Close()
+	if instructions := session.InitializeResult().Instructions; !strings.Contains(instructions, "intermediate artifacts") || !strings.Contains(instructions, "document_upsert") || !strings.Contains(instructions, "source-code branch") {
+		t.Fatalf("MCP clients did not receive artifact workflow instructions: %q", instructions)
+	}
 	tools, err := session.ListTools(ctx, nil)
 	if err != nil || len(tools.Tools) != 7 {
 		t.Fatalf("MCP tool discovery: %+v, %v", tools, err)
