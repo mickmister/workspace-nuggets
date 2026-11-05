@@ -45,6 +45,17 @@ with a conflicting second writer. A bare Dolt fixture does not test this lifecyc
 
 ## Shared core and MCP ergonomics
 
+The initial document implementation is in `documents.go`, with shared dispatch in
+`service.go`, CLI handling in `cli.go`, and SDK-backed stdio MCP in `mcp.go`.
+`cmd/nugs` is the executable entrypoint. Document trees contain regular blobs at
+`documents/<safe-relative-name>`; blob OIDs are per-resource content versions and
+commit OIDs identify workspace document snapshots. Each request uses a separate
+bare transaction repository. Success removes it; failed publication or stale
+upserts retain the local intent ref and available remote evidence for inspection.
+Current operations cover workspace document inspection, list/read/upsert and MCP
+resource reads. Media type is inferred from the name; richer per-run provenance,
+multi-repo bindings and other kinds remain subsequent schema/adapter work.
+
 Common operations should expose explicit workspace identity, kind, ref and version:
 
 - Workspace inspection and local bindings, including all repo memberships.
