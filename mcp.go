@@ -68,7 +68,7 @@ func toolResponse(response Response) (*mcp.CallToolResult, Response, error) {
 
 // NewMCPServer calls Service directly; no tool launches the nugs executable.
 func NewMCPServer(service Service) *mcp.Server {
-	server := mcp.NewServer(&mcp.Implementation{Name: "nugs", Version: "0.1.0"}, &mcp.ServerOptions{Instructions: agentArtifactInstructions})
+	server := mcp.NewServer(&mcp.Implementation{Name: "nugs", Version: Version}, &mcp.ServerOptions{Instructions: agentArtifactInstructions})
 	for _, tool := range []struct{ name, operation, description string }{
 		{"workspace_context", "workspace.context", "Return the persistent client workspace identity without contacting storage"},
 		{"workspaces_list", "workspace.list", "Discover stable workspace references in the current engagement only; no remote requests"},

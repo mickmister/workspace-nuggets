@@ -29,7 +29,23 @@ and uses private Git access controls for v1.
 
 ## Use the document CLI
 
-Requires Go 1.25+ and Git 2.39+ (including `merge-tree --write-tree`).
+Install the published CLI with Node.js 20+ and npm:
+
+```sh
+npm install --global nugs
+nugs --version
+# Or run without a global installation:
+npx nugs --help
+```
+
+The `nugs` npm package includes prebuilt executables for Linux, macOS and Windows
+on x64 and ARM64, plus the Go source, tests, `go.mod` and `go.sum`. Installation
+needs no Go compiler, install scripts, or separate binary downloads. A small Node
+launcher runs the bundled native executable with inherited cwd, environment and
+stdio. Git 2.39+ (including `merge-tree --write-tree`) is required for storage
+operations; native Beads/Dolt operations additionally need compatible `bd`/`dolt`.
+
+To build from source instead, use Go 1.25+:
 
 ```sh
 go install ./cmd/nugs
@@ -336,6 +352,10 @@ winner. CLI exit codes: `0` success, `1` operation failure, `2` usage error,
 go test ./...
 go test -race ./...
 go vet ./...
+npm ci --ignore-scripts
+npm test
+npm run build
+npm run test:package
 NUGS_TEST_DOLT=1 go test -v -run TestNativeDoltGitRefs ./...
 NUGS_TEST_BEADS=1 go test -v -run TestWorkspaceBeads ./...
 ```
@@ -367,6 +387,46 @@ not complete Beads table/history/working-set fidelity or external host support.
 These tests never open a live Beads DB, push an external remote, start Docker or
 modify global Git/Dolt settings. Native Dolt requires an initial ordinary Git
 branch/commit; the document backend does not bootstrap an unrelated source branch.
+
+## Publish npm releases
+
+The release repository is `mickmister/workspace-nuggets`. Pushing a SemVer tag
+such as `v1.2.3` runs `.github/workflows/publish-npm.yml` and publishes **`nugs`**
+at **`1.2.3`**. The workflow removes the single `v` prefix, validates the exact
+version, updates npm metadata/lockfile in the runner only, and embeds that same
+version in every native binary (`nugs --version`) and the MCP server identity.
+There is no release version commit or extra tag created by CI.
+
+Following springboard's release convention, stable versions use the npm `latest`
+dist-tag, `-rc` prereleases use `rc`, and other prereleases use `dev`. Malformed
+tags fail before building or publishing. The workflow tests Go and release logic,
+cross-compiles all six executables, checks the actual npm tarball and rebuilds
+its included Go source, then smoke-tests installation on Linux/macOS/Windows.
+Only after those jobs pass does it publish that same tested tarball.
+
+One-time npm setup:
+
+1. Ensure your npm account owns the unscoped `nugs` package. A new package needs
+   its initial publication/ownership established before its trusted publisher can
+   be configured; the workflow does not substitute a long-lived npm token.
+2. In **nugs → Settings → Trusted publishing**, add a GitHub Actions publisher:
+   owner **`mickmister`**, repository **`workspace-nuggets`**, workflow filename
+   **`publish-npm.yml`** (filename only), with no environment name. Allow direct
+   **`npm publish`**, as required by this workflow.
+3. Push a release tag after the workflow/source are available in that repository:
+
+   ```sh
+   git tag v1.2.3
+   git push origin v1.2.3
+   ```
+
+Publishing uses a GitHub-hosted runner, Node 24, npm 11 with trusted-publishing
+support, and job-scoped `id-token: write`; no `NPM_TOKEN`/`NODE_AUTH_TOKEN` secret
+is required. npm generates provenance automatically when its public-repository
+requirements are met. For an initial manual publication, set the version with
+`node scripts/prepare-release.mjs v1.2.3`, then `npm publish` from an authenticated
+maintainer account; `prepack` builds all binaries. Subsequent releases use tags
+and OIDC. Restore local version metadata after a manual bootstrap if needed.
 
 ## OpenCode adapter boundary
 

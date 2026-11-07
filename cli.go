@@ -52,6 +52,10 @@ func (r *repositoryFlags) String() string         { return fmt.Sprint([]string(*
 func (r *repositoryFlags) Set(value string) error { *r = append(*r, value); return nil }
 
 func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if len(args) == 1 && args[0] == "--version" {
+		fmt.Fprintln(stdout, "nugs "+Version)
+		return 0
+	}
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" {
 		fmt.Fprint(stdout, usage)
 		return 0
