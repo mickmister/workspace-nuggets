@@ -33,6 +33,14 @@ type provisionInput struct {
 	ExpectedVersion string   `json:"expected_version" jsonschema:"Observed manifest version; empty for create only"`
 }
 
+type restoreInput struct {
+	Workspace    string `json:"workspace,omitempty"`
+	Root         string `json:"root" jsonschema:"Explicit fresh workspace root; must have no .beads marker"`
+	DataDir      string `json:"data_dir" jsonschema:"Absent persistent collection directory, with an existing parent"`
+	CollectionID string `json:"collection_id" jsonschema:"Expected collection identity from the publication receipt"`
+	DoltCommit   string `json:"dolt_commit" jsonschema:"Expected exact Dolt checkpoint from the publication receipt"`
+}
+
 type upsertInput struct {
 	Workspace       string  `json:"workspace,omitempty"`
 	Name            string  `json:"name"`
@@ -50,7 +58,6 @@ func NewMCPServer(service Service) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "nugs", Version: "0.1.0"}, &mcp.ServerOptions{Instructions: agentArtifactInstructions})
 	for _, tool := range []struct{ name, operation, description string }{
 		{"storage_bootstrap", "storage.bootstrap", "Explicitly bootstrap the selected data repository with an empty ordinary branch for native Dolt; preserves all existing branches and custom refs"},
-		{"beads_publish", "beads.publish", "Checkpoint workspace Beads, push without force, and verify an independent native recovery; quiesce workers before handoff; divergence stops publication"},
 		{"workspace_inspect", "workspace.inspect", "Inspect a workspace manifest with repository branch pointers and document resources"},
 		{"documents_list", "documents.list", "Browse documents with versions and resource URIs"},
 	} {
@@ -61,6 +68,7 @@ func NewMCPServer(service Service) *mcp.Server {
 	for _, tool := range []struct{ name, operation, description string }{
 		{"beads_inspect", "beads.inspect", "Inspect workspace-owned Beads collection identity and native Dolt remote/ref configuration"},
 		{"beads_configure", "beads.configure", "Configure the workspace Beads native origin and custom Git ref; does not initialize, pull or push task data"},
+		{"beads_publish", "beads.publish", "Checkpoint workspace Beads, push without force, and verify an independent native recovery; quiesce workers before handoff; divergence stops publication"},
 	} {
 		mcp.AddTool(server, &mcp.Tool{Name: tool.name, Description: tool.description}, func(ctx context.Context, _ *mcp.CallToolRequest, in beadsInput) (*mcp.CallToolResult, Response, error) {
 			return toolResponse(service.Execute(ctx, Request{Operation: tool.operation, Workspace: in.Workspace, Root: in.Root}))
@@ -68,6 +76,9 @@ func NewMCPServer(service Service) *mcp.Server {
 	}
 	mcp.AddTool(server, &mcp.Tool{Name: "workspace_provision", Description: "Observe explicitly selected local repository branches and publish a version-checked workspace manifest; does not push source code"}, func(ctx context.Context, _ *mcp.CallToolRequest, in provisionInput) (*mcp.CallToolResult, Response, error) {
 		return toolResponse(service.Execute(ctx, Request{Operation: "workspace.provision", Workspace: in.Workspace, Root: in.Root, Repositories: in.Repositories, ExpectedVersion: in.ExpectedVersion}))
+	})
+	mcp.AddTool(server, &mcp.Tool{Name: "beads_restore", Description: "Restore an exact native checkpoint and collection identity into a fresh workspace; refuses existing markers and data directories"}, func(ctx context.Context, _ *mcp.CallToolRequest, in restoreInput) (*mcp.CallToolResult, Response, error) {
+		return toolResponse(service.Execute(ctx, Request{Operation: "beads.restore", Workspace: in.Workspace, Root: in.Root, DataDir: in.DataDir, CollectionID: in.CollectionID, DoltCommit: in.DoltCommit}))
 	})
 	mcp.AddTool(server, &mcp.Tool{Name: "document_read", Description: "Read exact document content and its observed version"}, func(ctx context.Context, _ *mcp.CallToolRequest, in readInput) (*mcp.CallToolResult, Response, error) {
 		return toolResponse(service.Execute(ctx, Request{Operation: "documents.read", Workspace: in.Workspace, Name: in.Name}))

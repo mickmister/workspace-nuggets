@@ -200,6 +200,27 @@ rejected push retains the local checkpoint and leaves remote reconciliation for
 an explicit next step. Publication does not pull or resolve conflicts, initialize
 a collection, enable auto-push, or bootstrap the storage repo implicitly.
 
+To attach an exact published native snapshot to a fresh workspace:
+
+```sh
+nugs beads restore --workspace WORKSPACE --root /path/to/fresh-workspace \
+  --data-dir /path/to/new-persistent-collection \
+  --collection-id COLLECTION_ID --dolt-commit DOLT_COMMIT
+```
+
+Use the collection ID and Dolt commit from the verified publication receipt.
+The workspace root and the persistent directory's parent must exist; the root's
+`.beads` marker and the persistent directory must be absent. Restoration clones
+the selected custom ref into staging, checks the native `_project_id` and exact
+checkpoint, verifies adoption through Beads, then installs a persistent collection
+and workspace-root redirect. Existing or symlinked destinations are rejected.
+An advanced remote checkpoint is rejected rather than silently adopted. Failed
+identity/revision checks leave the destination unattached. If installation succeeds
+but attachment fails, the verified persistent directory is retained for recovery.
+MCP exposes the same operation as `beads_restore`. Restoration preserves native
+history and records; it creates only local routing/configuration, with auto-push
+and source Git operations disabled. It does not initialize a new task database.
+
 One Beads collection belongs to the **workspace**, including all its repositories.
 Run native `bd` commands from the workspace root. `nugs` discovers the outer
 workspace `.beads/redirect`, resolves it using `bd where`, and inspects the existing

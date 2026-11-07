@@ -22,6 +22,7 @@ const usage = `Usage:
   nugs beads inspect [--root DIR]
   nugs beads configure [--root DIR]
   nugs beads publish [--root DIR]
+  nugs beads restore --root DIR --data-dir DIR --collection-id ID --dolt-commit HASH
   nugs documents list
   nugs documents read --name NAME
   nugs documents upsert --name NAME [--expected VERSION] [--file FILE|-]
@@ -68,6 +69,9 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 	expected := flags.String("expected", "", "observed version; empty means create only")
 	file := flags.String("file", "-", "content file or - for stdin")
 	root := flags.String("root", ".", "workspace root for repository memberships")
+	dataDir := flags.String("data-dir", "", "new persistent collection directory for native restoration")
+	collectionID := flags.String("collection-id", "", "expected collection identity from a native publication receipt")
+	doltCommit := flags.String("dolt-commit", "", "expected native Dolt checkpoint from a publication receipt")
 	var repositories repositoryFlags
 	flags.Var(&repositories, "repo", "repository path relative to --root; repeat for all memberships")
 	if err := flags.Parse(args); err != nil {
@@ -166,7 +170,7 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 		}
 		return 0
 	}
-	req := Request{Operation: operation, Workspace: *workspace, Name: *name, ExpectedVersion: *expected, Root: *root, Repositories: repositories}
+	req := Request{Operation: operation, Workspace: *workspace, Name: *name, ExpectedVersion: *expected, Root: *root, Repositories: repositories, DataDir: *dataDir, CollectionID: *collectionID, DoltCommit: *doltCommit}
 	if operation == "documents.upsert" {
 		var err error
 		if *file == "-" {

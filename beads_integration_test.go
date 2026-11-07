@@ -98,6 +98,19 @@ func TestWorkspaceBeadsNativeConfiguration(t *testing.T) {
 	if err := json.Unmarshal(createdJSON, &issue); err != nil || issue.ID == "" {
 		t.Fatalf("synthetic issue: %s, %v", createdJSON, err)
 	}
+	dependencyJSON, err := runBeads(ctx, root, "create", "Synthetic native dependency", "--description", "Verify restored dependency records", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dependency struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(dependencyJSON, &dependency); err != nil || dependency.ID == "" {
+		t.Fatalf("synthetic dependency: %s, %v", dependencyJSON, err)
+	}
+	if _, err := runBeads(ctx, root, "dep", "add", issue.ID, dependency.ID); err != nil {
+		t.Fatal(err)
+	}
 	var beforeStatus map[string]any
 	if err := beadsJSON(ctx, root, &beforeStatus, "vc", "status"); err != nil {
 		t.Fatal(err)
@@ -161,6 +174,47 @@ func TestWorkspaceBeadsNativeConfiguration(t *testing.T) {
 	refs := g.run(g.root, "", "git", "ls-remote", g.url, "refs/dolt/*")
 	if !strings.Contains(refs, "refs/dolt/workspace-beads") || strings.Contains(refs, "refs/dolt/data") {
 		t.Fatalf("native Beads used wrong Git namespace: %s", refs)
+	}
+	freshRoot := filepath.Join(g.root, "fresh-workspace")
+	if err := os.Mkdir(freshRoot, 0700); err != nil {
+		t.Fatal(err)
+	}
+	dataDir := filepath.Join(g.root, "restored-persistent")
+	if _, err := store.RestoreBeads(ctx, freshRoot, dataDir, "wrong-collection", publication.DoltCommit); !errors.As(err, &failure) || failure.Code != "conflict" {
+		t.Fatalf("wrong collection was not rejected: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(freshRoot, ".beads")); !os.IsNotExist(err) {
+		t.Fatal("failed restoration attached workspace")
+	}
+	if _, err := os.Lstat(dataDir); !os.IsNotExist(err) {
+		t.Fatal("failed restoration installed collection")
+	}
+	if _, err := store.RestoreBeads(ctx, freshRoot, dataDir, info.CollectionID, "wrong-checkpoint"); !errors.As(err, &failure) || failure.Code != "conflict" {
+		t.Fatalf("wrong checkpoint was not rejected: %v", err)
+	}
+	var stdout, stderr strings.Builder
+	code := RunCLI(ctx, []string{"beads", "restore", "--remote", g.url, "--workspace", store.Workspace, "--root", freshRoot, "--data-dir", dataDir, "--collection-id", info.CollectionID, "--dolt-commit", publication.DoltCommit}, strings.NewReader(""), &stdout, &stderr)
+	var restored Response
+	if err := json.Unmarshal([]byte(stdout.String()), &restored); err != nil || code != 0 || restored.Restoration == nil || !restored.Restoration.Verified {
+		t.Fatalf("CLI restore: %s %s (%d, %v)", stdout.String(), stderr.String(), code, err)
+	}
+	adopted, err := store.InspectBeads(ctx, freshRoot)
+	if err != nil || adopted.CollectionID != info.CollectionID || !adopted.Configured || adopted.AutoPush || adopted.BeadsDir != filepath.Join(dataDir, ".beads") {
+		t.Fatalf("restored collection routing: %+v, %v", adopted, err)
+	}
+	originalIssue, err := runBeads(ctx, root, "show", issue.ID, "--json", "--readonly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredIssue, err := runBeads(ctx, freshRoot, "show", issue.ID, "--json", "--readonly")
+	if err != nil || string(originalIssue) != string(restoredIssue) {
+		t.Fatalf("restored native issue differs: %s, %v", restoredIssue, err)
+	}
+	if _, err := store.RestoreBeads(ctx, freshRoot, filepath.Join(g.root, "another-collection"), info.CollectionID, publication.DoltCommit); !errors.As(err, &failure) || failure.Code != "conflict" {
+		t.Fatalf("existing workspace was replaced: %v", err)
+	}
+	if _, err := store.RestoreBeads(ctx, filepath.Join(g.root, "missing-workspace"), dataDir, info.CollectionID, publication.DoltCommit); err == nil {
+		t.Fatal("restoration accepted missing root")
 	}
 	clone := filepath.Join(g.root, "recovered")
 	g.run(g.root, "", "dolt", "clone", "--ref", info.DesiredRef, info.DesiredURL, clone)

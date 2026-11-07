@@ -23,6 +23,9 @@ type Request struct {
 	Content         []byte
 	Root            string
 	Repositories    []string
+	DataDir         string
+	CollectionID    string
+	DoltCommit      string
 }
 
 type DocumentView struct {
@@ -44,6 +47,7 @@ type Response struct {
 	Beads           *BeadsInfo        `json:"beads,omitempty"`
 	Storage         *StorageReceipt   `json:"storage,omitempty"`
 	Publication     *BeadsPublication `json:"publication,omitempty"`
+	Restoration     *BeadsRestoration `json:"restoration,omitempty"`
 }
 
 func ResourceURI(workspace, name string) string {
@@ -70,6 +74,9 @@ func (s Service) Execute(ctx context.Context, req Request) Response {
 	case "beads.publish":
 		res.Ref = "refs/dolt/" + req.Workspace
 		res.Publication, err = store.PublishBeads(ctx, req.Root)
+	case "beads.restore":
+		res.Ref = "refs/dolt/" + req.Workspace
+		res.Restoration, err = store.RestoreBeads(ctx, req.Root, req.DataDir, req.CollectionID, req.DoltCommit)
 	case "beads.configure":
 		res.Ref = "refs/dolt/" + req.Workspace
 		res.Beads, err = store.ConfigureBeads(ctx, req.Root)

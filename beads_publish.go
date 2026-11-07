@@ -5,10 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 // BeadsPublication is deliberately free of storage URLs and authentication.
@@ -70,22 +68,10 @@ func (s Store) PublishBeads(ctx context.Context, root string) (*BeadsPublication
 	// Never open the live embedded database using a second engine. Recovery is
 	// performed in an isolated disposable directory, including its SQL read.
 	recovered := filepath.Join(t.dir, "recovered")
-	run := func(dir string, args ...string) ([]byte, error) {
-		bounded, cancel := context.WithTimeout(ctx, 2*time.Minute)
-		defer cancel()
-		cmd := exec.CommandContext(bounded, "dolt", args...)
-		cmd.Dir, cmd.Env, cmd.WaitDelay = dir, gitEnvironment(), time.Second
-		out, err := cmd.Output()
-		if err != nil {
-			// Dolt diagnostics can echo private URLs. Receipts/errors must not.
-			return nil, fmt.Errorf("independent native recovery failed: %w", err)
-		}
-		return out, nil
-	}
-	if _, err := run(t.dir, "clone", "--ref", info.DesiredRef, info.DesiredURL, recovered); err != nil {
+	if _, err := runNativeDolt(ctx, t.dir, "clone", "--ref", info.DesiredRef, info.DesiredURL, recovered); err != nil {
 		return nil, err
 	}
-	out, err := run(recovered, "sql", "-r", "json", "-q", "SELECT DOLT_HASHOF('HEAD') AS commit_hash")
+	out, err := runNativeDolt(ctx, recovered, "sql", "-r", "json", "-q", "SELECT DOLT_HASHOF('HEAD') AS commit_hash")
 	if err != nil {
 		return nil, err
 	}
