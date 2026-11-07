@@ -19,8 +19,8 @@ type BeadsCatchUp struct {
 }
 
 // CatchUpBeads uses Beads' fetch-only federation status and bare vc merge,
-// never its auto-resolving pull. The caller must quiesce workers first. The
-// remote revision is pinned by hash, not a movable tracking-branch name.
+// never its auto-resolving pull. The remote revision is pinned by hash, not a
+// movable tracking-branch name. Newer committed local edits merge normally.
 func (s Store) CatchUpBeads(ctx context.Context, root, expectedCommit string) (*BeadsCatchUp, error) {
 	if expectedCommit == "" {
 		return nil, invalid("catch-up requires the exact remote Dolt commit from a publication receipt")
@@ -52,25 +52,12 @@ func (s Store) CatchUpBeads(ctx context.Context, root, expectedCommit string) (*
 	if _, err := runNativeDolt(ctx, t.dir, "clone", "--ref", info.DesiredRef, info.DesiredURL, clone); err != nil {
 		return receipt, err
 	}
-	out, err := runNativeDolt(ctx, clone, "sql", "-r", "json", "-q", "SELECT DOLT_HASHOF('HEAD') AS commit_hash, (SELECT value FROM metadata WHERE `key`='_project_id') AS collection_id")
-	if err != nil {
+	if _, err := verifyNativeCheckpoint(ctx, clone, info.CollectionID, expectedCommit); err != nil {
 		return receipt, err
-	}
-	var snapshot struct {
-		Rows []struct {
-			Commit       string `json:"commit_hash"`
-			CollectionID string `json:"collection_id"`
-		} `json:"rows"`
-	}
-	if err := json.Unmarshal(out, &snapshot); err != nil {
-		return receipt, err
-	}
-	if len(snapshot.Rows) != 1 || snapshot.Rows[0].Commit != expectedCommit || snapshot.Rows[0].CollectionID != info.CollectionID {
-		return receipt, &OperationError{Code: "conflict", Message: "remote native checkpoint or collection identity changed; local checkpoint retained"}
 	}
 	// This supported interface fetches without merging. Its exit status alone
 	// does not prove reachability, so validate its structured result as well.
-	out, err = runBeads(ctx, info.WorkspaceRoot, "federation", "status", "--peer", "origin", "--json")
+	out, err := runBeads(ctx, info.WorkspaceRoot, "federation", "status", "--peer", "origin", "--json")
 	if err != nil {
 		return receipt, &OperationError{Code: "fetch_failed", Message: "native fetch failed; local checkpoint retained"}
 	}
@@ -94,9 +81,10 @@ func (s Store) CatchUpBeads(ctx context.Context, root, expectedCommit string) (*
 	if err := beadsJSON(ctx, info.WorkspaceRoot, &fetchedVersion, "vc", "status"); err != nil {
 		return receipt, err
 	}
-	if fetchedVersion != before {
-		return receipt, &OperationError{Code: "conflict", Message: "local checkpoint changed during fetch; quiesce workers and retry"}
+	if fetchedVersion.Branch != before.Branch || fetchedVersion.Commit == "" {
+		return receipt, &OperationError{Code: "conflict", Message: "local branch changed during fetch; retry on the intended branch"}
 	}
+	receipt.BeforeCommit = fetchedVersion.Commit
 	out, err = runBeads(ctx, info.WorkspaceRoot, "vc", "merge", expectedCommit, "--json")
 	if err != nil {
 		return receipt, &OperationError{Code: "merge_failed", Message: "native clean merge refused; inspect the retained local and remote checkpoints: " + err.Error()}

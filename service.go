@@ -40,24 +40,25 @@ type DocumentView struct {
 }
 
 type Response struct {
-	Workspace          string             `json:"workspace"`
-	WorkspaceReference string             `json:"workspace_ref,omitempty"`
-	Engagement         string             `json:"engagement,omitempty"`
-	Workspaces         []WorkspaceContext `json:"workspaces,omitempty"`
-	Ref                string             `json:"ref"`
-	Resources          []Resource         `json:"resources,omitempty"`
-	Document           *DocumentView      `json:"document,omitempty"`
-	Receipt            *Receipt           `json:"receipt,omitempty"`
-	Error              *OperationError    `json:"error,omitempty"`
-	Manifest           *Manifest          `json:"manifest,omitempty"`
-	ManifestVersion    string             `json:"manifest_version,omitempty"`
-	Commit             string             `json:"commit,omitempty"`
-	Beads              *BeadsInfo         `json:"beads,omitempty"`
-	Storage            *StorageReceipt    `json:"storage,omitempty"`
-	Publication        *BeadsPublication  `json:"publication,omitempty"`
-	Restoration        *BeadsRestoration  `json:"restoration,omitempty"`
-	CatchUp            *BeadsCatchUp      `json:"catch_up,omitempty"`
-	Handoff            *WorkspaceHandoff  `json:"handoff,omitempty"`
+	Workspace          string                `json:"workspace"`
+	WorkspaceReference string                `json:"workspace_ref,omitempty"`
+	Engagement         string                `json:"engagement,omitempty"`
+	Workspaces         []WorkspaceContext    `json:"workspaces,omitempty"`
+	Ref                string                `json:"ref"`
+	Resources          []Resource            `json:"resources,omitempty"`
+	Document           *DocumentView         `json:"document,omitempty"`
+	Receipt            *Receipt              `json:"receipt,omitempty"`
+	Error              *OperationError       `json:"error,omitempty"`
+	Manifest           *Manifest             `json:"manifest,omitempty"`
+	ManifestVersion    string                `json:"manifest_version,omitempty"`
+	Commit             string                `json:"commit,omitempty"`
+	Beads              *BeadsInfo            `json:"beads,omitempty"`
+	Storage            *StorageReceipt       `json:"storage,omitempty"`
+	Publication        *BeadsPublication     `json:"publication,omitempty"`
+	Restoration        *BeadsRestoration     `json:"restoration,omitempty"`
+	CatchUp            *BeadsCatchUp         `json:"catch_up,omitempty"`
+	Handoff            *WorkspaceHandoff     `json:"handoff,omitempty"`
+	Synchronization    *BeadsSynchronization `json:"synchronization,omitempty"`
 }
 
 func ResourceURI(workspace, name string) string {
@@ -145,9 +146,16 @@ func (s Service) Execute(ctx context.Context, req Request) Response {
 	case "beads.inspect":
 		res.Ref = "refs/dolt/" + req.Workspace
 		res.Beads, err = store.InspectBeads(ctx, req.Root)
-	case "beads.publish":
+	case "beads.publish", "beads.sync":
 		res.Ref = "refs/dolt/" + req.Workspace
-		res.Publication, err = store.PublishBeads(ctx, req.Root)
+		if req.Operation == "beads.sync" {
+			res.Synchronization, err = store.SyncBeads(ctx, req.Root)
+			if res.Synchronization != nil {
+				res.Publication = res.Synchronization.Publication
+			}
+		} else {
+			res.Publication, err = store.PublishBeads(ctx, req.Root)
+		}
 		if err == nil && binding != nil && res.Publication != nil && res.Publication.Verified {
 			res.Handoff = &WorkspaceHandoff{SchemaVersion: 1, WorkspaceContext: binding.WorkspaceContext,
 				CollectionID: res.Publication.CollectionID, DoltCommit: res.Publication.DoltCommit}

@@ -361,7 +361,7 @@ func TestCLIAndStdioMCPOverHTTP(t *testing.T) {
 		t.Fatalf("MCP clients did not receive artifact workflow instructions: %q", instructions)
 	}
 	tools, err := session.ListTools(ctx, nil)
-	if err != nil || len(tools.Tools) != 13 {
+	if err != nil || len(tools.Tools) != 14 {
 		t.Fatalf("MCP tool discovery: %+v, %v", tools, err)
 	}
 	call := func(name string, args map[string]any) (*mcp.CallToolResult, Response) {

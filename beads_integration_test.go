@@ -302,6 +302,14 @@ func TestWorkspaceBeadsNativeConfiguration(t *testing.T) {
 		if err := json.Unmarshal(encoded, &result); err != nil || result.WorkspaceReference != h.Reference || result.Engagement != h.Engagement {
 			t.Fatalf("MCP identity differs: %+v %v", result, err)
 		}
+		tool, err = cs.CallTool(ctx, &mcp.CallToolParams{Name: "beads_sync", Arguments: map[string]any{}})
+		if err != nil || tool.IsError {
+			t.Fatalf("MCP contextual peer sync: %+v %v", tool, err)
+		}
+		encoded, _ = json.Marshal(tool.StructuredContent)
+		if err := json.Unmarshal(encoded, &result); err != nil || result.Synchronization == nil || result.Handoff == nil || result.Handoff.Reference != h.Reference || !result.Publication.Verified {
+			t.Fatalf("MCP sync lost stable handoff: %+v %v", result, err)
+		}
 		peerRoot := filepath.Join(g.root, "context-peer")
 		if err := os.Mkdir(peerRoot, 0700); err != nil {
 			t.Fatal(err)
@@ -385,6 +393,62 @@ func TestWorkspaceBeadsNativeConfiguration(t *testing.T) {
 			t.Fatalf("catch-up lost %s: %s, %v", id, out, err)
 		}
 	}
+	t.Run("concurrent replica synchronization and historical handoff", func(t *testing.T) {
+		// Both replicas continue working after the original handoff. No live
+		// database is opened by another engine and no writer pause is needed.
+		if _, err := runBeads(ctx, freshRoot, "update", dependency.ID, "--description", "New local work during CI"); err != nil {
+			t.Fatal(err)
+		}
+		g.run(clone, "", "dolt", "sql", "-q", "UPDATE issues SET description='New remote work during local edits' WHERE id='"+issue.ID+"'")
+		g.run(clone, "", "dolt", "add", ".")
+		g.run(clone, "", "dolt", "commit", "-m", "Independent peer continues")
+		g.run(clone, "", "dolt", "push", "origin", "main")
+		var out, diagnostics strings.Builder
+		code := RunCLI(ctx, []string{"beads", "sync", "--remote", g.url, "--workspace", store.Workspace, "--root", freshRoot}, strings.NewReader(""), &out, &diagnostics)
+		var result Response
+		if err := json.Unmarshal([]byte(out.String()), &result); err != nil || code != 0 || result.Error != nil || result.Synchronization == nil || result.Synchronization.Attempts != 2 || len(result.Synchronization.Merges) != 1 || !result.Publication.Verified {
+			t.Fatalf("CLI clean peer sync: %s %s (%d, %v)", out.String(), diagnostics.String(), code, err)
+		}
+		for id, want := range map[string]string{issue.ID: "New remote work during local edits", dependency.ID: "New local work during CI"} {
+			out, err := runBeads(ctx, freshRoot, "show", id, "--json", "--readonly")
+			if err != nil || !strings.Contains(string(out), want) {
+				t.Fatalf("sync lost independent edit %s: %s, %v", id, out, err)
+			}
+		}
+		// Check the original receipt while BOTH source and remote HEADs have
+		// advanced. The captured native checkpoint must remain verifiable.
+		if _, err := runBeads(ctx, root, "update", dependency.ID, "--description", "Unpublished source work after handoff"); err != nil {
+			t.Fatal(err)
+		}
+		tx, err := store.begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer os.RemoveAll(tx.dir)
+		verified, err := store.verifyBeadsPublication(ctx, tx, info, beadsVersion{Branch: publication.Branch, Commit: publication.DoltCommit})
+		if err != nil || !verified.Verified || verified.DoltCommit != publication.DoltCommit {
+			t.Fatalf("immutable publication rejected newer history: %+v %v", verified, err)
+		}
+		historicalRoot := filepath.Join(g.root, "historical-workspace")
+		if err := os.Mkdir(historicalRoot, 0700); err != nil {
+			t.Fatal(err)
+		}
+		restored, err := store.RestoreBeads(ctx, historicalRoot, filepath.Join(g.root, "historical-data"), info.CollectionID, publication.DoltCommit)
+		if err != nil || !restored.Verified || restored.DoltCommit != publication.DoltCommit {
+			t.Fatalf("historical handoff could not restore: %+v %v", restored, err)
+		}
+		oldIssue, err := runBeads(ctx, historicalRoot, "show", issue.ID, "--json", "--readonly")
+		if err != nil || string(oldIssue) != string(originalIssue) {
+			t.Fatalf("historical restore returned current state: %s %v", oldIssue, err)
+		}
+		// Return reconciliation can also select an older published checkpoint,
+		// even after a peer publishes descendants. It must retain local work.
+		if _, err := store.CatchUpBeads(ctx, freshRoot, remoteCommit); err != nil {
+			t.Fatalf("historical catch-up refused: %v", err)
+		}
+		g.run(clone, "", "dolt", "pull", "origin", "main")
+		remoteCommit = remoteHead()
+	})
 	remoteBefore := g.run(g.root, "", "git", "ls-remote", g.url, info.DesiredRef)
 	if _, err := runBeads(ctx, root, "update", issue.ID, "--title", "Local checkpoint retained"); err != nil {
 		t.Fatal(err)
@@ -413,6 +477,13 @@ func TestWorkspaceBeadsNativeConfiguration(t *testing.T) {
 	}
 	if remoteAfter := g.run(g.root, "", "git", "ls-remote", g.url, info.DesiredRef); remoteAfter != remoteBefore {
 		t.Fatal("catch-up changed published remote")
+	}
+	refusedSync, err := store.SyncBeads(ctx, root)
+	if !errors.As(err, &failure) || failure.Code != "merge_failed" || refusedSync == nil || len(refusedSync.Merges) != 1 || refusedSync.Merges[0].Verified {
+		t.Fatalf("sync silently resolved real conflict: %+v %v", refusedSync, err)
+	}
+	if err := beadsJSON(ctx, root, &afterConflict, "vc", "status"); err != nil || afterConflict != beforeConflict {
+		t.Fatalf("sync conflict changed local checkpoint: %+v %v", afterConflict, err)
 	}
 	// A new dependency races deletion of its target. Unlike the row conflict
 	// above, the surviving rows merge independently but violate a foreign key.

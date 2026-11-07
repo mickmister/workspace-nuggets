@@ -83,7 +83,8 @@ func NewMCPServer(service Service) *mcp.Server {
 	for _, tool := range []struct{ name, operation, description string }{
 		{"beads_inspect", "beads.inspect", "Inspect workspace-owned Beads collection identity and native Dolt remote/ref configuration"},
 		{"beads_configure", "beads.configure", "Configure the workspace Beads native origin and custom Git ref; does not initialize, pull or push task data"},
-		{"beads_publish", "beads.publish", "Checkpoint workspace Beads, push without force, and verify an independent native recovery; quiesce workers before handoff; divergence stops publication"},
+		{"beads_publish", "beads.publish", "Checkpoint workspace Beads, push without force, and independently verify immutable history; local work may continue; divergence stops publication"},
+		{"beads_sync", "beads.sync", "Synchronize native peers with bounded fetch/clean-merge/publication retries; preserve concurrent edits and stop on real conflicts"},
 	} {
 		mcp.AddTool(server, &mcp.Tool{Name: tool.name, Description: tool.description}, func(ctx context.Context, _ *mcp.CallToolRequest, in beadsInput) (*mcp.CallToolResult, Response, error) {
 			return toolResponse(service.Execute(ctx, Request{Operation: tool.operation, Workspace: in.Workspace, WorkspaceReference: in.WorkspaceReference, Root: in.Root}))
@@ -95,7 +96,7 @@ func NewMCPServer(service Service) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{Name: "beads_restore", Description: "Restore an exact native checkpoint and collection identity into a fresh workspace; refuses existing markers and data directories"}, func(ctx context.Context, _ *mcp.CallToolRequest, in restoreInput) (*mcp.CallToolResult, Response, error) {
 		return toolResponse(service.Execute(ctx, Request{Operation: "beads.restore", Workspace: in.Workspace, WorkspaceReference: in.WorkspaceReference, Root: in.Root, DataDir: in.DataDir, CollectionID: in.CollectionID, DoltCommit: in.DoltCommit}))
 	})
-	mcp.AddTool(server, &mcp.Tool{Name: "beads_catch_up", Description: "Fetch and clean-merge an exact native checkpoint through Beads; never pull with auto-resolution or publish a winner; quiesce workers first"}, func(ctx context.Context, _ *mcp.CallToolRequest, in catchUpInput) (*mcp.CallToolResult, Response, error) {
+	mcp.AddTool(server, &mcp.Tool{Name: "beads_catch_up", Description: "Fetch and clean-merge a published native checkpoint through Beads, preserving newer local edits; never pull with auto-resolution or publish a winner"}, func(ctx context.Context, _ *mcp.CallToolRequest, in catchUpInput) (*mcp.CallToolResult, Response, error) {
 		return toolResponse(service.Execute(ctx, Request{Operation: "beads.catch-up", Workspace: in.Workspace, WorkspaceReference: in.WorkspaceReference, Root: in.Root, DoltCommit: in.DoltCommit}))
 	})
 	mcp.AddTool(server, &mcp.Tool{Name: "document_read", Description: "Read exact document content and its observed version"}, func(ctx context.Context, _ *mcp.CallToolRequest, in readInput) (*mcp.CallToolResult, Response, error) {

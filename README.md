@@ -235,13 +235,27 @@ workspace snapshot. Use it only with the selected workspace data repository.
 After configuring the workspace's native remote, `nugs beads publish` (MCP
 `beads_publish`) checkpoints pending changes through `bd dolt commit`, pushes
 without force, and independently clones the workspace's custom ref to verify the
-exact Dolt checkpoint. Its receipt contains the collection ID, branch, Git and
-Dolt commit IDs, and verification result, with no storage URL or credentials.
-Quiesce workers before a handoff: the setup lock does not exclude ordinary `bd`
-writes. A changed local/remote head during verification returns an error. A
-rejected push retains the local checkpoint and leaves remote reconciliation for
+captured Dolt checkpoint in the published history. Its receipt contains the
+collection ID, branch, observed Git tip, immutable Dolt checkpoint and verification
+result, with no storage URL or credentials. Local edits may continue after the
+checkpoint: a handoff does not require local HEAD to remain stationary. A remote
+advance during verification is retried up to three times to bind the Git receipt
+to one observed tip. The Git tip may include descendants of the Dolt checkpoint.
+A rejected push retains the local checkpoint and leaves remote reconciliation for
 an explicit next step. Publication does not pull or resolve conflicts, initialize
 a collection, enable auto-push, or bootstrap the storage repo implicitly.
+
+For ordinary peer synchronization, use `nugs beads sync` (MCP `beads_sync`).
+It checkpoints and publishes, then fetches and clean-merges the verified peer
+checkpoint if the push is rejected, with at most three publication attempts.
+Disjoint local/remote edits survive; real row/schema/constraint conflicts stop
+without choosing a winner. The synchronization receipt includes each merge's
+local/remote/result checkpoint and the final verified publication. Bound sync
+also emits the same trusted handoff as publish. Fetch/identity errors stop;
+exhausted retries retain the local state for a later sync. Native driver locking
+still governs simultaneous commands against one live collection; a transient
+busy/unclean-working-set error can require retrying an operation, not pausing
+everyone for the duration of a CI run.
 
 To attach an exact published native snapshot to a fresh workspace:
 
@@ -257,7 +271,9 @@ The workspace root and the persistent directory's parent must exist; the root's
 the selected custom ref into staging, checks the native `_project_id` and exact
 checkpoint, verifies adoption through Beads, then installs a persistent collection
 and workspace-root redirect. Existing or symlinked destinations are rejected.
-An advanced remote checkpoint is rejected rather than silently adopted. Failed
+If the remote has advanced, restoration verifies ancestry and collection identity
+and materializes the requested historical checkpoint, not the newer tip. The
+newer tip is retained on a separate branch in the fresh clone. Failed
 identity/revision checks leave the destination unattached. If installation succeeds
 but attachment fails, the verified persistent directory is retained for recovery.
 MCP exposes the same operation as `beads_restore`. Restoration preserves native
@@ -267,7 +283,8 @@ and source Git operations disabled. It does not initialize a new task database.
 ### Trusted fresh-runner context handoff
 
 For a fresh machine that must retain the original opaque workspace identity,
-publish from an already bound source workspace. Successful `nugs beads publish`
+publish from an already bound source workspace. Successful `nugs beads sync` or
+`nugs beads publish`
 returns an endpoint-free `handoff` object containing schema version, stable
 `workspace_ref`, engagement, existing storage namespace, native collection ID and
 exact verified Dolt checkpoint. The trusted coordinator passes that object to the
@@ -275,7 +292,7 @@ runner independently of untrusted source/request/agent text.
 
 ```sh
 # Trusted coordinator: retain .handoff from a verified bound publication.
-nugs beads publish > /tmp/opencode/publication.json
+nugs beads sync > /tmp/opencode/publication.json
 jq -e '.handoff' /tmp/opencode/publication.json > /tmp/opencode/handoff.json
 
 # Trusted runner setup: existing empty root and persistent directory parent.
@@ -296,7 +313,8 @@ nugs documents list
 selector. It rejects incomplete/unknown handoff fields and conflicting existing
 identities, endpoints, namespaces or collections. It verifies native recovery
 **before** publishing the machine registry attachment. An unavailable/unpublished
-or advanced checkpoint fails without installing a replacement binding. Reusing an
+checkpoint fails without installing a replacement binding. Remote descendants
+do not invalidate the pinned handoff. Reusing an
 existing native marker/root is refused. A verified clone may be retained for
 recovery if final installation or registry publication fails; no live data is
 deleted to roll it back. Independent verification/peer roots use the same trusted
@@ -308,13 +326,16 @@ responsibility. No URL, credential, cache path or source-local filesystem path i
 carried in the handoff. No cross-engagement transfer or namespace migration is
 performed by importing it.
 
-For an already attached, quiesced workspace, use `nugs beads catch-up
+For an already attached workspace, use `nugs beads catch-up
 --dolt-commit HASH` (MCP `beads_catch_up`) with the remote publication's exact Dolt
 commit. Catch-up checkpoints local changes, independently validates the remote
 collection/revision, fetches through Beads' federation status interface, and
 invokes bare `bd vc merge` against the pinned hash. It never uses Beads' pull
-auto-resolver or a winner-selection strategy. A changed local checkpoint or
-unclean fetch stops the operation. Merge failures return local/remote checkpoint
+auto-resolver or a winner-selection strategy. Newer committed local edits are
+included by the native merge; a branch switch or unclean fetch stops the
+operation. The requested remote checkpoint may be an ancestor of the current
+remote tip. Success means its history was incorporated, not that local HEAD must
+equal it. Merge failures return local/remote checkpoint
 IDs for inspection; catch-up does not publish the result. Native row/schema/
 constraint errors are surfaced rather than repaired or resolved automatically.
 

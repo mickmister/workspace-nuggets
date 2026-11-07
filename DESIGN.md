@@ -54,7 +54,16 @@ Different existing URL/ref bindings are conflicts. The init lock coordinates
 setup/init only; normal command concurrency belongs to the native driver.
 Actual embedded Beads fixtures now exercise configure, issue/history preservation,
 native push and custom-ref recovery, beyond the original synthetic Dolt table test.
-Server/proxied setup and general synchronization orchestration remain follow-ups.
+Server/proxied setup remains a follow-up. Native `beads sync` now provides bounded
+publication/fetch/clean-merge retries. Checkpoint receipts are immutable history
+claims, not leases on local or remote HEAD: concurrent local edits and published
+descendants do not invalidate a handoff. Fresh restore materializes the pinned
+historical checkpoint after verifying ancestry and identity; catch-up incorporates
+it into current local history. Only native clean merges are automatic. True
+conflicts and constraint violations retain both histories and stop synchronization.
+No long-lived workspace-wide writer pause is part of this contract. Source-repo
+callers of reusable workflows should supply stable setup policy; changing native
+checkpoint descriptors belong to trusted workflow plumbing, not caller arguments.
 
 ## Shared core and MCP ergonomics
 

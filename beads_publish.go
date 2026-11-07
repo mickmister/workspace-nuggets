@@ -2,7 +2,6 @@ package nuggets
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,8 +25,8 @@ type beadsVersion struct {
 }
 
 // PublishBeads commits via the supported Beads lifecycle and verifies the
-// non-force push using an independent native clone. Callers must quiesce workers
-// before a handoff; the setup lock is not a lock against ordinary bd mutations.
+// non-force push using an independent native clone. Local edits may continue:
+// the receipt attests the captured checkpoint, not the latest local HEAD.
 // Divergence fails without pulling, choosing conflict winners, or force-pushing.
 func (s Store) PublishBeads(ctx context.Context, root string) (*BeadsPublication, error) {
 	info, err := s.InspectBeads(ctx, root)
@@ -57,47 +56,40 @@ func (s Store) PublishBeads(ctx context.Context, root string) (*BeadsPublication
 		return nil, err
 	}
 	defer os.RemoveAll(t.dir)
-	refs, err := t.git(ctx, nil, "ls-remote", "--exit-code", "--refs", t.remote, info.DesiredRef)
-	if err != nil {
-		return nil, err
+	return s.verifyBeadsPublication(ctx, t, info, version)
+}
+
+func (s Store) verifyBeadsPublication(ctx context.Context, t *transaction, info *BeadsInfo, version beadsVersion) (*BeadsPublication, error) {
+	// A remote advance during cloning is retried, without stopping local writers.
+	// The Git receipt and independent clone must describe one observed remote tip.
+	for attempt := 0; attempt < 3; attempt++ {
+		refs, err := t.git(ctx, nil, "ls-remote", "--exit-code", "--refs", t.remote, info.DesiredRef)
+		if err != nil {
+			return nil, err
+		}
+		fields := strings.Fields(string(refs))
+		if len(fields) != 2 || fields[1] != info.DesiredRef {
+			return nil, fmt.Errorf("native publication ref was not advertised")
+		}
+		// Never open the live embedded database using a second engine. Recovery is
+		// performed in an isolated disposable directory, including its SQL read.
+		recovered := filepath.Join(t.dir, fmt.Sprintf("recovered-%d", attempt))
+		if _, err := runNativeDolt(ctx, t.dir, "clone", "--ref", info.DesiredRef, info.DesiredURL, recovered); err != nil {
+			return nil, err
+		}
+		if _, err := verifyNativeCheckpoint(ctx, recovered, info.CollectionID, version.Commit); err != nil {
+			return nil, err
+		}
+		// Bind the Git receipt to the same observed remote state, rather than to a
+		// ref that advanced while recovery was in progress.
+		afterRefs, err := t.git(ctx, nil, "ls-remote", "--exit-code", "--refs", t.remote, info.DesiredRef)
+		if err != nil {
+			return nil, err
+		}
+		if string(afterRefs) != string(refs) {
+			continue
+		}
+		return &BeadsPublication{CollectionID: info.CollectionID, Ref: info.DesiredRef, GitCommit: fields[0], DoltCommit: version.Commit, Branch: version.Branch, Verified: true}, nil
 	}
-	fields := strings.Fields(string(refs))
-	if len(fields) != 2 || fields[1] != info.DesiredRef {
-		return nil, fmt.Errorf("native publication ref was not advertised")
-	}
-	// Never open the live embedded database using a second engine. Recovery is
-	// performed in an isolated disposable directory, including its SQL read.
-	recovered := filepath.Join(t.dir, "recovered")
-	if _, err := runNativeDolt(ctx, t.dir, "clone", "--ref", info.DesiredRef, info.DesiredURL, recovered); err != nil {
-		return nil, err
-	}
-	out, err := runNativeDolt(ctx, recovered, "sql", "-r", "json", "-q", "SELECT DOLT_HASHOF('HEAD') AS commit_hash")
-	if err != nil {
-		return nil, err
-	}
-	var snapshot struct {
-		Rows []struct {
-			Commit string `json:"commit_hash"`
-		} `json:"rows"`
-	}
-	if err := json.Unmarshal(out, &snapshot); err != nil {
-		return nil, fmt.Errorf("decode recovered native snapshot: %w", err)
-	}
-	if len(snapshot.Rows) != 1 || snapshot.Rows[0].Commit != version.Commit {
-		return nil, &OperationError{Code: "conflict", Message: "recovered remote snapshot does not match the local checkpoint; publication not verified"}
-	}
-	// Bind the Git receipt to the same observed remote state, rather than to a
-	// ref that advanced while recovery was in progress.
-	afterRefs, err := t.git(ctx, nil, "ls-remote", "--exit-code", "--refs", t.remote, info.DesiredRef)
-	if err != nil {
-		return nil, err
-	}
-	var after beadsVersion
-	if err := beadsJSON(ctx, info.WorkspaceRoot, &after, "vc", "status"); err != nil {
-		return nil, err
-	}
-	if string(afterRefs) != string(refs) || after != version {
-		return nil, &OperationError{Code: "conflict", Message: "workspace or remote advanced during verification; quiesce writers and retry publication"}
-	}
-	return &BeadsPublication{CollectionID: info.CollectionID, Ref: info.DesiredRef, GitCommit: fields[0], DoltCommit: version.Commit, Branch: version.Branch, Verified: true}, nil
+	return nil, &OperationError{Code: "conflict", Message: "remote advanced during all publication verification attempts; checkpoint retained, retry synchronization"}
 }

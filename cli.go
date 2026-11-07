@@ -27,6 +27,7 @@ const usage = `Usage:
   nugs beads inspect [--root DIR]
   nugs beads configure [--root DIR]
   nugs beads publish [--root DIR]
+  nugs beads sync [--root DIR]
   nugs beads restore --root DIR --data-dir DIR --collection-id ID --dolt-commit HASH
   nugs beads catch-up [--root DIR] --dolt-commit HASH
   nugs documents list

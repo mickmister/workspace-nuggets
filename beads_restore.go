@@ -104,23 +104,28 @@ func (s Store) RestoreBeads(ctx context.Context, root, dataDir, collectionID, co
 	if _, err := runNativeDolt(ctx, stage, "clone", "--ref", ref, remote, clone); err != nil {
 		return nil, err
 	}
-	// Inspect only the isolated clone. The expected collection identity is
-	// carried inside native history, rather than inferred from issue prefixes.
-	out, err := runNativeDolt(ctx, clone, "sql", "-r", "json", "-q", "SELECT DOLT_HASHOF('HEAD') AS commit_hash, (SELECT value FROM metadata WHERE `key`='_project_id') AS collection_id")
+	// A checkpoint remains restorable after other replicas publish descendants.
+	// Materialize it only in this fresh, unattached clone. Preserve the newer tip
+	// on another local branch; never reset or open an existing live collection.
+	head, err := verifyNativeCheckpoint(ctx, clone, collectionID, commit)
 	if err != nil {
 		return nil, err
 	}
-	var snapshot struct {
-		Rows []struct {
-			Commit       string `json:"commit_hash"`
-			CollectionID string `json:"collection_id"`
-		} `json:"rows"`
-	}
-	if err := json.Unmarshal(out, &snapshot); err != nil {
-		return nil, fmt.Errorf("decode native restoration identity: %w", err)
-	}
-	if len(snapshot.Rows) != 1 || snapshot.Rows[0].Commit != commit || snapshot.Rows[0].CollectionID != collectionID {
-		return nil, &OperationError{Code: "conflict", Message: "native remote does not match the expected collection and Dolt commit; no workspace attached"}
+	if head != commit {
+		branch, err := runNativeDolt(ctx, clone, "branch", "--show-current")
+		if err != nil {
+			return nil, err
+		}
+		name := strings.TrimSpace(string(branch))
+		if name == "" {
+			return nil, fmt.Errorf("recovered native branch is missing")
+		}
+		if _, err := runNativeDolt(ctx, clone, "branch", "-m", name, "nugs-tip-"+filepath.Base(stage)); err != nil {
+			return nil, err
+		}
+		if _, err := runNativeDolt(ctx, clone, "checkout", "-b", name, commit); err != nil {
+			return nil, err
+		}
 	}
 	metadata, err := json.Marshal(map[string]string{"database": "dolt", "backend": "dolt", "dolt_mode": "embedded", "dolt_database": database, "project_id": collectionID})
 	if err != nil {
