@@ -423,10 +423,19 @@ One-time npm setup:
 Publishing uses a GitHub-hosted runner, Node 24, npm 11 with trusted-publishing
 support, and job-scoped `id-token: write`; no `NPM_TOKEN`/`NODE_AUTH_TOKEN` secret
 is required. npm generates provenance automatically when its public-repository
-requirements are met. For an initial manual publication, set the version with
-`node scripts/prepare-release.mjs v1.2.3`, then `npm publish` from an authenticated
-maintainer account; `prepack` builds all binaries. Subsequent releases use tags
-and OIDC. Restore local version metadata after a manual bootstrap if needed.
+requirements are met. For an initial manual publication, use an unused bootstrap
+version **different from the first CI release**, for example:
+
+```sh
+npm login
+node scripts/prepare-release.mjs v0.0.0
+npm publish --tag bootstrap
+```
+
+`prepack` builds all binaries. Configure the trusted publisher after that initial
+publication, then push a different release tag such as `v0.1.0` for OIDC publishing.
+Do not push `v0.0.0` in this example: npm will reject that already-published version.
+Restore local version metadata after the manual bootstrap if needed.
 
 ## OpenCode adapter boundary
 
