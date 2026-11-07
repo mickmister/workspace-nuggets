@@ -5,27 +5,32 @@ import (
 	"encoding/base64"
 	"errors"
 	"net/url"
+	"strings"
 	"unicode/utf8"
 )
 
 // Service is the common boundary used directly by CLI and MCP handlers.
 type Service struct {
-	Remote           string
-	CacheDir         string
-	DefaultWorkspace string
+	Remote             string
+	CacheDir           string
+	DefaultWorkspace   string
+	RegistryPath       string
+	ContextDir         string
+	WorkspaceReference string
 }
 
 type Request struct {
-	Operation       string
-	Workspace       string
-	Name            string
-	ExpectedVersion string
-	Content         []byte
-	Root            string
-	Repositories    []string
-	DataDir         string
-	CollectionID    string
-	DoltCommit      string
+	Operation          string
+	Workspace          string
+	WorkspaceReference string
+	Name               string
+	ExpectedVersion    string
+	Content            []byte
+	Root               string
+	Repositories       []string
+	DataDir            string
+	CollectionID       string
+	DoltCommit         string
 }
 
 type DocumentView struct {
@@ -35,20 +40,23 @@ type DocumentView struct {
 }
 
 type Response struct {
-	Workspace       string            `json:"workspace"`
-	Ref             string            `json:"ref"`
-	Resources       []Resource        `json:"resources,omitempty"`
-	Document        *DocumentView     `json:"document,omitempty"`
-	Receipt         *Receipt          `json:"receipt,omitempty"`
-	Error           *OperationError   `json:"error,omitempty"`
-	Manifest        *Manifest         `json:"manifest,omitempty"`
-	ManifestVersion string            `json:"manifest_version,omitempty"`
-	Commit          string            `json:"commit,omitempty"`
-	Beads           *BeadsInfo        `json:"beads,omitempty"`
-	Storage         *StorageReceipt   `json:"storage,omitempty"`
-	Publication     *BeadsPublication `json:"publication,omitempty"`
-	Restoration     *BeadsRestoration `json:"restoration,omitempty"`
-	CatchUp         *BeadsCatchUp     `json:"catch_up,omitempty"`
+	Workspace          string             `json:"workspace"`
+	WorkspaceReference string             `json:"workspace_ref,omitempty"`
+	Engagement         string             `json:"engagement,omitempty"`
+	Workspaces         []WorkspaceContext `json:"workspaces,omitempty"`
+	Ref                string             `json:"ref"`
+	Resources          []Resource         `json:"resources,omitempty"`
+	Document           *DocumentView      `json:"document,omitempty"`
+	Receipt            *Receipt           `json:"receipt,omitempty"`
+	Error              *OperationError    `json:"error,omitempty"`
+	Manifest           *Manifest          `json:"manifest,omitempty"`
+	ManifestVersion    string             `json:"manifest_version,omitempty"`
+	Commit             string             `json:"commit,omitempty"`
+	Beads              *BeadsInfo         `json:"beads,omitempty"`
+	Storage            *StorageReceipt    `json:"storage,omitempty"`
+	Publication        *BeadsPublication  `json:"publication,omitempty"`
+	Restoration        *BeadsRestoration  `json:"restoration,omitempty"`
+	CatchUp            *BeadsCatchUp      `json:"catch_up,omitempty"`
 }
 
 func ResourceURI(workspace, name string) string {
@@ -56,13 +64,77 @@ func ResourceURI(workspace, name string) string {
 }
 
 func (s Service) Execute(ctx context.Context, req Request) Response {
+	var binding *WorkspaceBinding
+	var registry Registry
+	if s.RegistryPath != "" {
+		var err error
+		registry, err = readRegistry(s.RegistryPath)
+		if req.WorkspaceReference == "" && req.Workspace == "" {
+			req.WorkspaceReference = s.WorkspaceReference
+		}
+		var b WorkspaceBinding
+		var root string
+		if err == nil {
+			b, root, err = registry.resolve(s.ContextDir, req.WorkspaceReference, req.Workspace)
+		}
+		if err != nil {
+			return failedResponse(err)
+		}
+		binding = &b
+		s.Remote, s.CacheDir, req.Workspace = b.Remote, b.CacheDir, b.Workspace
+		if strings.HasPrefix(req.Operation, "beads.") || req.Operation == "workspace.provision" {
+			if req.Root == "" {
+				req.Root = root
+			}
+			actual, _, err := registry.resolve(req.Root, "", "")
+			if err != nil {
+				return failedResponse(err)
+			}
+			if actual.Reference != b.Reference {
+				return failedResponse(invalid("native/provision root does not match selected workspace attachment"))
+			}
+			if b.CollectionID != "" && strings.HasPrefix(req.Operation, "beads.") {
+				if req.Operation == "beads.restore" {
+					if req.CollectionID != b.CollectionID {
+						return failedResponse(invalid("restore collection does not match persistent binding"))
+					}
+				} else {
+					info, err := (Store{Remote: b.Remote, Workspace: b.Workspace}).InspectBeads(ctx, req.Root)
+					if err != nil {
+						return failedResponse(err)
+					}
+					if info.CollectionID != b.CollectionID {
+						return failedResponse(invalid("native collection identity no longer matches attachment"))
+					}
+				}
+			}
+		}
+	}
 	if req.Workspace == "" {
 		req.Workspace = s.DefaultWorkspace
 	}
 	store := Store{Remote: s.Remote, Workspace: req.Workspace, CacheDir: s.CacheDir}
 	res := Response{Workspace: req.Workspace, Ref: store.Ref()}
+	if binding != nil {
+		res.WorkspaceReference, res.Engagement = binding.Reference, binding.Engagement
+	}
 	var err error
 	switch req.Operation {
+	case "workspace.context":
+		if binding == nil {
+			err = invalid("workspace context requires a persistent attachment")
+		}
+	case "workspace.list":
+		if binding == nil {
+			err = invalid("workspace discovery requires a persistent attachment")
+		} else {
+			res.Workspaces = []WorkspaceContext{}
+			for _, b := range registry.Bindings {
+				if b.Engagement == binding.Engagement {
+					res.Workspaces = append(res.Workspaces, b.WorkspaceContext)
+				}
+			}
+		}
 	case "storage.bootstrap":
 		res.Storage, err = store.BootstrapStorage(ctx)
 		if res.Storage != nil {
@@ -116,6 +188,25 @@ func (s Service) Execute(ctx context.Context, req Request) Response {
 	default:
 		err = invalid("unknown operation")
 	}
+	if binding != nil {
+		for i := range res.Resources {
+			res.Resources[i].URI = ResourceURI(binding.Reference, res.Resources[i].Name)
+		}
+		if res.Document != nil {
+			res.Document.URI = ResourceURI(binding.Reference, res.Document.Name)
+		}
+		if res.Receipt != nil {
+			res.Receipt.URI = ResourceURI(binding.Reference, res.Receipt.Name)
+		}
+	}
+	if err != nil {
+		res.Error = failedResponse(err).Error
+	}
+	return res
+}
+
+func failedResponse(err error) Response {
+	res := Response{}
 	if err != nil {
 		var operationError *OperationError
 		if errors.As(err, &operationError) {

@@ -34,8 +34,10 @@ Requires Go 1.25+ and Git 2.39+ (including `merge-tree --write-tree`).
 ```sh
 go install ./cmd/nugs
 
-# Configure the machine once; commands infer the current branch workspace.
-nugs config set --remote https://github.com/mickmister/workspace-storage.git
+# Configure onboarding policy, then explicitly bind this workspace once.
+nugs config set --engagement my-engagement --remote https://example.com/private/storage.git
+nugs workspace init --root /path/to/workspace --workspace feature-123
+# Run ordinary commands from that root or any member repository.
 nugs workspace inspect
 nugs documents list
 
@@ -73,48 +75,70 @@ Record the returned resource URI/version in the bead, and attach forms using
 Maintained project documentation, schemas and reusable test fixtures remain
 source-controlled; purpose, rather than a `.json` extension, determines placement.
 
-## Machine config and workspace selection
+## Persistent binding and workspace selection
 
 Config defaults to `nugs/config.json` under the machine's user config directory:
 `$XDG_CONFIG_HOME/nugs/config.json`, normally `~/.config/nugs/config.json` on Linux.
 It is not discovered from repository files. `nugs config show` prints its location
-and values; `nugs config set --remote URL [--cache DIR]` updates it atomically.
+and values; `nugs config set --engagement NAME --remote URL` updates onboarding
+policy atomically. Ordinary commands use a persisted attachment, not this policy.
 
 ```json
 {
-  "remote": "https://github.com/mickmister/workspace-storage.git"
+  "engagement": "my-engagement",
+  "remote": "https://example.com/private/storage.git"
 }
 ```
 
-`--config FILE` selects a different config. `--remote` and `--cache` override its
-values for one command. Relative paths in config are resolved from that file's
-directory; `config set` converts local path arguments to absolute paths. An absent
-default config is allowed when flags provide a remote; an explicitly selected
-missing or malformed config is an error.
+`nugs workspace init` inherits a complete configured engagement policy. With no
+policy, it explicitly creates a private local bare data repository, bootstraps
+its ordinary native-Dolt prerequisite branch, and persists the binding. A partial
+policy is an error. Local initialization does not contact a hosted provider or
+create a Beads collection. Setup can infer a readable branch slug once; outside
+a checkout use `--workspace HANDLE` (or explicit `--repo` memberships sharing a
+branch). Full current source branch refs remain separately observable in manifests.
 
-Workspace defaults to the current branch slug: `vk/46e5-vd-multi-instanc` becomes
-`vk-46e5-vd-multi-instanc`. Slugs lowercase ASCII letters and digits and collapse
-punctuation into hyphens. Full branch refs remain in the manifest. When invoked
-from a non-Git workspace root, provisioning can infer a common branch from the
-explicitly selected repositories. Detached HEAD, disagreeing selected branches,
-or a branch with no supported slug require `--workspace ID`.
+```sh
+# No configured policy: entirely local onboarding.
+nugs workspace init --root /path/to/workspace --workspace feature-123
 
-`--workspace` can select another workspace, an existing UUID, or disambiguate
-branch names that normalize to the same slug. Storage remote and workspace slug
-together scope the resources; using a slug does not merge independent Beads
-collections. Existing UUID refs remain addressable. Explicit workspace IDs accept
-letters, digits, hyphens and underscores. Document names are safe relative paths.
+# Preserve an existing hosted namespace and native collection, without migration.
+nugs workspace attach --root /path/to/workspace --engagement my-engagement \
+  --remote https://example.com/private/storage.git --workspace existing-namespace
 
-Storage refs are derived from the selected workspace handle, not independently
-from every member repository's branch: `refs/documents/<workspace>` for documents
-and intermediate artifacts, and `refs/dolt/<workspace>` for the native Beads
-binding. `refs/conversations/<workspace>` is reserved for the planned adapter.
-When invoked inside a Git worktree, its current branch supplies the default even
-if another member repository has a different branch. The common-branch fallback
-applies only outside a Git worktree with explicit repository memberships. Different
-member branches remain explicit manifest bindings; they do not create multiple
-implicit workspace storage refs. Source branch renames change the inferred slug;
-use an explicit workspace handle to continue querying an older namespace.
+nugs workspace context
+nugs workspace list
+nugs documents list --workspace-ref ws-0123456789abcdef0123456789abcdef
+
+# Attach an additional local root to an already registered identity.
+nugs workspace attach --root /path/to/fresh-root --workspace-ref "$WORKSPACE_REF"
+```
+
+Setup returns an opaque `workspace_ref`. The machine-private `nugs/registry.json`
+stores immutable bindings and canonical directory attachments independently of
+`--config FILE`. Ordinary CLI/MCP calls default to that directory context;
+source branch renames, member-repository cwd, and later config/profile edits do
+not retarget it. Repeated setup is idempotent; conflicting rebinds fail. An
+existing native Beads origin/ref and collection ID remain authoritative. Attach
+does not fetch, publish, relocate data, or rewrite source refs/Beads records.
+
+Discovery, explicit selection and resource reads stay inside the attached
+engagement. `--workspace-ref` selects a returned identity; `--workspace HANDLE`
+only selects an unambiguous registered handle in that engagement. Missing or
+ambiguous attachments/handles and unavailable stores fail without fallback or
+replacement creation. Overlapping conflicting directory attachments are refused.
+Caches and retained failed transactions are pinned per engagement and identity.
+Cross-engagement transfers and migrations require a separate explicit operation;
+ordinary tools do not provide such traversal. Physical credentials grant no
+additional discovery scope.
+
+Existing storage namespaces remain `refs/documents/<workspace>` and
+`refs/dolt/<workspace>`; adopting a stable reference does not rename refs or
+resource versions. Returned contextual resource URIs use `workspace_ref` to
+avoid slug ambiguity. The explicit `--remote URL --workspace NAMESPACE` transport
+adapter remains available in **unattached directories** for pinned trusted CI
+handoffs. It never uses global defaults or branch inference and cannot override
+a persistent attachment. New ordinary integrations should attach context first.
 
 ## Provision a workspace manifest
 
@@ -156,11 +180,13 @@ storage repository; no default source branch needs to be created.
 
 ## Use from an MCP client
 
-Launch `nugs mcp` as a stdio MCP server. Remote/cache come from machine config;
-the default workspace is inferred from the launch directory's branch. Flags can
-override those defaults. Tool requests may omit `workspace` to use the server
-default, or select one explicitly. Outside a branch checkout, launch with
-`--workspace ID` or provide a workspace on every tool request. Available tools:
+Launch `nugs mcp` from an attached root or member directory. Requests omit
+workspace selectors by default, or pass a returned `workspace_ref` for an
+explicit same-engagement selection. Tools and resource reads share the same
+resolver; neither can bypass engagement boundaries. Available tools include:
+
+- `workspace_context`: `{}` — current stable identity without contacting storage.
+- `workspaces_list`: `{}` — registered identities in the attached engagement only.
 
 - `workspace_inspect`: `{ "workspace": "feature-123" }` — manifest, version and
   current document view; manifest is absent for an unprovisioned workspace.
@@ -238,11 +264,11 @@ collection rather than selecting a repository's `.beads` database. An explicit
 `--root` must contain that redirect. It never initializes databases in source repos.
 
 ```sh
-# From a branch checkout inside the workspace; machine config supplies the remote.
+# From any directory inside an attached workspace.
 nugs beads inspect
 nugs beads configure
 
-# Outside a branch checkout, supply the readable workspace slug explicitly.
+# Source branches do not determine the persisted storage namespace.
 nugs beads configure --root /path/to/workspace --workspace feature-workspace
 ```
 
@@ -288,8 +314,9 @@ On a stale version, conflict, failed fetch or failed push, the JSON error includ
 `local_repository`, local/base/
 remote commits and expected/actual versions. `base_commit` is the fetched snapshot
 used to construct the candidate; on a stale request it is not the caller's older
-observed snapshot. Failed transactions remain in the local user cache under
-`nugs/transactions`, or the directory supplied with `--cache`.
+observed snapshot. Failed transactions remain in the attachment's private
+engagement/identity cache. The explicit unattached transport adapter uses
+`nugs/transactions` or the directory supplied with `--cache`.
 
 Inspect the retained evidence using the paths from the error:
 
@@ -323,8 +350,11 @@ has no authentication because it contains only isolated synthetic test data.
 Manifest tests cover multi-repository branch/commit pointers, detached HEAD,
 dirty and missing-remote states, credential stripping, version-checked updates,
 invalid manifests and CLI/MCP provisioning parity.
-Config tests exercise machine-level discovery, flag/config precedence, branch
-slug inference, ambiguous/detached cases and omitted MCP workspace arguments.
+Registry/config tests exercise explicit local-only setup, policy-derived
+attachment, omitted CLI/MCP routing arguments, two stores with the same handle,
+branch rename/member cwd/profile stability, isolated discovery/cache/resources,
+same-engagement opaque selection, ambiguity, missing stores and conflicting
+rebinds. Branch inference is tested separately as a setup-only helper.
 The opt-in Beads test creates an actual isolated workspace collection outside its
 repositories, configures it, checks issue/history preservation and idempotency,
 rejects repointing, then pushes only synthetic data with `bd` over local HTTP and

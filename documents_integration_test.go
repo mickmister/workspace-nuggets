@@ -347,7 +347,7 @@ func TestCLIAndStdioMCPOverHTTP(t *testing.T) {
 	if err := saveConfig(centralConfig, Config{Remote: g.url}); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.CommandContext(ctx, binary, "mcp", "--workspace", "cli-mcp", "--cache", t.TempDir())
+	cmd := exec.CommandContext(ctx, binary, "mcp", "--remote", g.url, "--workspace", "cli-mcp", "--cache", t.TempDir())
 	cmd.Env = g.env
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -361,7 +361,7 @@ func TestCLIAndStdioMCPOverHTTP(t *testing.T) {
 		t.Fatalf("MCP clients did not receive artifact workflow instructions: %q", instructions)
 	}
 	tools, err := session.ListTools(ctx, nil)
-	if err != nil || len(tools.Tools) != 11 {
+	if err != nil || len(tools.Tools) != 13 {
 		t.Fatalf("MCP tool discovery: %+v, %v", tools, err)
 	}
 	call := func(name string, args map[string]any) (*mcp.CallToolResult, Response) {

@@ -23,10 +23,14 @@ backend is `refs/documents/<workspace>` in the configured storage repository.
 
 ## Workspace identity and Beads
 
-The storage remote defaults to the machine's `nugs/config.json`. Workspace names
-default to branch slugs; use `--workspace` to select another workspace or resolve
-a slug collision. Each manifest records its repositories' actual full branch
-refs and commit IDs separately from that handle.
+Ordinary CLI/MCP operations use the persistent directory attachment in the
+machine-private `nugs/registry.json`. Explicit `workspace init` inherits configured
+engagement policy, or creates private local storage when no policy exists;
+`workspace attach` preserves a selected existing namespace. Machine defaults and
+branch changes never retarget existing bindings. Use returned `workspace_ref`
+values for explicit same-engagement selection; missing/ambiguous bindings fail.
+Each manifest records actual repository branch refs and commits separately from
+the persisted readable storage handle. Setup does not migrate existing data.
 
 Use the workspace-root `.beads/redirect` collection for task tracking and run `bd`
 from that root. Do not initialize or select repository-based Beads databases.

@@ -11,8 +11,9 @@ import (
 )
 
 type Config struct {
-	Remote   string `json:"remote,omitempty"`
-	CacheDir string `json:"cache_dir,omitempty"`
+	Engagement string `json:"engagement,omitempty"`
+	Remote     string `json:"remote,omitempty"`
+	CacheDir   string `json:"cache_dir,omitempty"`
 }
 
 func ConfigPath() (string, error) {
@@ -45,6 +46,10 @@ func loadConfig(filename string, allowMissing bool) (Config, error) {
 }
 
 func saveConfig(filename string, config Config) error {
+	return saveJSON(filename, config)
+}
+
+func saveJSON(filename string, config any) error {
 	dir := filepath.Dir(filename)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err

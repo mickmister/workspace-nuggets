@@ -16,6 +16,10 @@ import (
 const usage = `Usage:
   nugs config set --remote URL [--cache DIR]
   nugs config show
+  nugs workspace init [--root DIR] [--workspace HANDLE]
+  nugs workspace attach --root DIR [--workspace-ref REF | --engagement NAME --remote URL --workspace HANDLE]
+  nugs workspace context
+  nugs workspace list
   nugs storage bootstrap
   nugs workspace inspect
   nugs workspace provision --root DIR --repo RELPATH [--repo RELPATH] [--expected VERSION]
@@ -29,12 +33,15 @@ const usage = `Usage:
   nugs documents upsert --name NAME [--expected VERSION] [--file FILE|-]
   nugs mcp
 
-Remote/cache default to the machine's nugs/config.json under its user config
-directory. --config FILE selects another config; --remote/--cache override it.
-Workspace defaults to the current branch slug; --workspace ID overrides it.
+Onboarding policy lives in the machine's nugs/config.json under its user config
+directory; --config FILE selects setup policy without changing existing bindings.
+Ordinary operations use the persistent directory attachment, independent of
+branch changes and machine defaults. --workspace-ref selects a registered
+workspace in the same engagement. Setup alone may infer a readable branch handle.
+config set --engagement NAME --remote URL sets onboarding policy, not a rebind.
 All document commands emit JSON. Omit --expected (or use an empty value) for
 create-only; pass the observed version for an update. Upsert reads stdin by
-default. --cache selects storage for retained failed publication intents.
+default. Bound caches retain failed publication intents per engagement/workspace.
 
 Agent workflow:
 ` + agentArtifactInstructions + "\n"
@@ -65,7 +72,9 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 	remote := flags.String("remote", "", "Git URL or repository path")
 	configFile := flags.String("config", "", "config file (default: user config directory/nugs/config.json)")
 	cache := flags.String("cache", "", "local transaction cache")
-	workspace := flags.String("workspace", "", "workspace ID (default: current branch slug)")
+	workspace := flags.String("workspace", "", "readable workspace handle; setup can infer it once from a branch")
+	workspaceRef := flags.String("workspace-ref", "", "stable registered workspace reference")
+	engagement := flags.String("engagement", "", "engagement policy for explicit workspace setup")
 	name := flags.String("name", "", "relative document name")
 	expected := flags.String("expected", "", "observed version; empty means create only")
 	file := flags.String("file", "-", "content file or - for stdin")
@@ -87,6 +96,9 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 	if strings.HasPrefix(operation, "beads.") && !seen["root"] {
 		*root = "" // Discover the workspace redirect, never a repository database.
 	}
+	if operation == "workspace.provision" && !seen["root"] {
+		*root = ""
+	}
 	if *configFile == "" {
 		var err error
 		*configFile, err = ConfigPath()
@@ -107,9 +119,12 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 	}
 	if operation == "config.set" || operation == "config.show" {
 		if operation == "config.set" {
-			if !seen["remote"] && !seen["cache"] {
-				fmt.Fprintln(stderr, "config set requires --remote or --cache")
+			if !seen["remote"] && !seen["cache"] && !seen["engagement"] {
+				fmt.Fprintln(stderr, "config set requires --remote, --cache or --engagement")
 				return 2
+			}
+			if seen["engagement"] {
+				config.Engagement = *engagement
 			}
 			if seen["remote"] {
 				config.Remote = *remote
@@ -140,30 +155,56 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 		}
 		return 0
 	}
-	if !seen["remote"] {
-		*remote = config.Remote
-		if *remote != "" && !strings.Contains(*remote, ":") {
-			*remote = configRelative(filename, *remote)
-		}
-	}
-	if !seen["cache"] {
-		*cache = configRelative(filename, config.CacheDir)
-	}
-	if *remote == "" {
-		fmt.Fprintln(stderr, "configure a storage remote with 'nugs config set --remote URL' or pass --remote")
+	registryPath, err := RegistryPath()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	if *workspace == "" {
-		cwd, err := os.Getwd()
-		if err == nil {
-			*workspace, err = InferWorkspace(ctx, cwd, *root, repositories)
+	if operation == "workspace.init" || operation == "workspace.attach" {
+		setup := BindingSetup{Root: *root, Reference: *workspaceRef, Engagement: *engagement, Workspace: *workspace, Remote: *remote}
+		if setup.Remote != "" && !strings.Contains(setup.Remote, ":") {
+			setup.Remote, err = filepath.Abs(setup.Remote)
 		}
-		if err != nil && operation != "mcp" {
+		var result WorkspaceContext
+		if err == nil {
+			result, err = setupFromPolicy(ctx, registryPath, filename, operation, setup, config, repositories)
+		}
+		if err != nil {
 			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		if err := json.NewEncoder(stdout).Encode(result); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		return 0
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	registry, err := readRegistry(registryPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	binding, _, contextErr := registry.resolve(cwd, *workspaceRef, *workspace)
+	service := Service{RegistryPath: registryPath, ContextDir: cwd, WorkspaceReference: *workspaceRef}
+	if contextErr != nil {
+		// Retain the explicit transport adapter used by existing trusted CI
+		// handoffs. Mutable machine defaults and branch inference never enter it.
+		opErr, unbound := contextErr.(*OperationError)
+		_, _, attachedErr := registry.resolve(cwd, "", "")
+		if !unbound || opErr.Code != "workspace_unbound" || attachedErr == nil || !seen["remote"] || !seen["workspace"] || *workspaceRef != "" {
+			fmt.Fprintln(stderr, contextErr)
 			return 2
 		}
+		service = Service{Remote: *remote, CacheDir: *cache, DefaultWorkspace: *workspace}
+	} else if seen["remote"] && *remote != binding.Remote || seen["cache"] && *cache != binding.CacheDir {
+		fmt.Fprintln(stderr, "explicit transport/cache conflicts with persistent workspace binding")
+		return 2
 	}
-	service := Service{Remote: *remote, CacheDir: *cache, DefaultWorkspace: *workspace}
 	if operation == "mcp" {
 		if err := NewMCPServer(service).Run(ctx, &mcp.StdioTransport{}); err != nil {
 			fmt.Fprintln(stderr, err)
@@ -171,7 +212,7 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 		}
 		return 0
 	}
-	req := Request{Operation: operation, Workspace: *workspace, Name: *name, ExpectedVersion: *expected, Root: *root, Repositories: repositories, DataDir: *dataDir, CollectionID: *collectionID, DoltCommit: *doltCommit}
+	req := Request{Operation: operation, Workspace: *workspace, WorkspaceReference: *workspaceRef, Name: *name, ExpectedVersion: *expected, Root: *root, Repositories: repositories, DataDir: *dataDir, CollectionID: *collectionID, DoltCommit: *doltCommit}
 	if operation == "documents.upsert" {
 		var err error
 		if *file == "-" {

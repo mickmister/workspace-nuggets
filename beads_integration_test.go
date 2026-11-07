@@ -134,6 +134,29 @@ func TestWorkspaceBeadsNativeConfiguration(t *testing.T) {
 	if err != nil || again.Changed || !again.Configured || again.CollectionID != info.CollectionID {
 		t.Fatalf("idempotent configuration: %+v, %v", again, err)
 	}
+	registryFile := filepath.Join(g.root, "registry.json")
+	attached, err := SetupWorkspace(ctx, registryFile, BindingSetup{Root: root, Engagement: "native-fixture", Remote: store.Remote, Workspace: store.Workspace})
+	if err != nil {
+		t.Fatalf("attach existing native collection: %v", err)
+	}
+	boundService := Service{RegistryPath: registryFile, ContextDir: source}
+	bound := boundService.Execute(ctx, Request{Operation: "beads.inspect"})
+	if bound.Error != nil || bound.Beads.CollectionID != info.CollectionID || bound.WorkspaceReference != attached.Reference {
+		t.Fatalf("context did not preserve existing collection: %+v", bound)
+	}
+	if _, err := SetupWorkspace(ctx, registryFile, BindingSetup{Root: root, Workspace: "different-workspace"}); err == nil {
+		t.Fatal("conflicting attachment rebound existing native collection")
+	}
+	secondRoot := filepath.Join(g.root, "other-root")
+	if err := os.MkdirAll(filepath.Join(secondRoot, ".beads"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(secondRoot, ".beads", "redirect"), []byte(filepath.Join(persistent, ".beads")+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SetupWorkspace(ctx, registryFile, BindingSetup{Root: secondRoot, Engagement: "native-fixture", Remote: store.Remote, Workspace: "wrong-native-ref"}); err == nil {
+		t.Fatal("new attachment ignored authoritative native origin/ref")
+	}
 	var afterStatus map[string]any
 	if err := beadsJSON(ctx, root, &afterStatus, "vc", "status"); err != nil {
 		t.Fatal(err)

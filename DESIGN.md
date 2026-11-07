@@ -80,14 +80,18 @@ push, including clean reconciliations. Source repositories are only observed;
 there is no source push, Git-object upload, checkout or restore. PR/base-ref
 relationships and actual remote-object availability checks remain future work.
 
-Machine defaults now live at `os.UserConfigDir()/nugs/config.json` (normally
-`~/.config/nugs/config.json` on Linux), managed by `nugs config set/show`, with
-explicit `--config`, `--remote` and `--cache` overrides. Repository-local files
-are not auto-discovered. Workspace defaults to a readable current-branch slug;
-the full source ref remains in each repository pointer. Multi-repo root inference
-requires a common branch among explicitly selected repositories. Detached or
-ambiguous cases require an explicit workspace ID. CLI and MCP use the same default
-workspace through Service; existing UUID identifiers are still supported.
+Onboarding policy lives at `os.UserConfigDir()/nugs/config.json`, managed by
+`nugs config set/show`; repository-local policy files are not auto-discovered.
+Explicit `workspace init` inherits that policy or, when absent, creates a private
+local bare data repository. `workspace attach` registers an existing namespace
+without migration. Immutable bindings and canonical directory attachments live
+in the separate machine-private `nugs/registry.json`, shared by CLI/MCP Service.
+Ordinary operations use attachment context, stable opaque workspace references,
+and engagement-scoped discovery/resources/caches. Branch slugs are setup-time
+handles only; source branch changes and policy/profile edits cannot retarget a
+binding. Missing/ambiguous bindings fail without fallback. Existing hosted refs,
+native Beads collection IDs and resource versions remain unchanged. Rebinds and
+cross-engagement transfers are separate explicit operations, not implicit setup.
 
 Common operations should expose explicit workspace identity, kind, ref and version:
 

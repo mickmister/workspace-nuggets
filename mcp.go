@@ -13,46 +13,53 @@ import (
 const agentArtifactInstructions = "Store intermediate artifacts (for example Beads form JSON, research captures and generated reports) as versioned workspace resources using documents upsert in the CLI or document_upsert in MCP. Do not commit intermediate artifacts to the source-code branch. Use logical resource names such as forms/workspace-composition.json, record the resource URI and version in the relevant bead, and use expected_version for updates. Maintained product code, documentation, schemas and reusable test fixtures remain source-controlled."
 
 type workspaceInput struct {
-	Workspace string `json:"workspace,omitempty" jsonschema:"Workspace slug; defaults to the server's branch workspace"`
+	Workspace          string `json:"workspace,omitempty" jsonschema:"Readable handle within the attached engagement; omit for current context"`
+	WorkspaceReference string `json:"workspace_ref,omitempty" jsonschema:"Stable reference returned by workspace discovery; scoped to the current engagement"`
 }
 
 type readInput struct {
-	Workspace string `json:"workspace,omitempty"`
-	Name      string `json:"name" jsonschema:"Relative document resource name"`
+	WorkspaceReference string `json:"workspace_ref,omitempty"`
+	Workspace          string `json:"workspace,omitempty"`
+	Name               string `json:"name" jsonschema:"Relative document resource name"`
 }
 
 type beadsInput struct {
-	Workspace string `json:"workspace,omitempty"`
-	Root      string `json:"root,omitempty" jsonschema:"Workspace root with .beads/redirect; omitted discovers the outer workspace from server cwd"`
+	WorkspaceReference string `json:"workspace_ref,omitempty"`
+	Workspace          string `json:"workspace,omitempty"`
+	Root               string `json:"root,omitempty" jsonschema:"Workspace root with .beads/redirect; omitted discovers the outer workspace from server cwd"`
 }
 
 type provisionInput struct {
-	Workspace       string   `json:"workspace,omitempty"`
-	Root            string   `json:"root" jsonschema:"Explicit local workspace root on the server"`
-	Repositories    []string `json:"repositories" jsonschema:"Explicit local repository paths relative to root; include every membership"`
-	ExpectedVersion string   `json:"expected_version" jsonschema:"Observed manifest version; empty for create only"`
+	WorkspaceReference string   `json:"workspace_ref,omitempty"`
+	Workspace          string   `json:"workspace,omitempty"`
+	Root               string   `json:"root" jsonschema:"Explicit local workspace root on the server"`
+	Repositories       []string `json:"repositories" jsonschema:"Explicit local repository paths relative to root; include every membership"`
+	ExpectedVersion    string   `json:"expected_version" jsonschema:"Observed manifest version; empty for create only"`
 }
 
 type restoreInput struct {
-	Workspace    string `json:"workspace,omitempty"`
-	Root         string `json:"root" jsonschema:"Explicit fresh workspace root; must have no .beads marker"`
-	DataDir      string `json:"data_dir" jsonschema:"Absent persistent collection directory, with an existing parent"`
-	CollectionID string `json:"collection_id" jsonschema:"Expected collection identity from the publication receipt"`
-	DoltCommit   string `json:"dolt_commit" jsonschema:"Expected exact Dolt checkpoint from the publication receipt"`
+	WorkspaceReference string `json:"workspace_ref,omitempty"`
+	Workspace          string `json:"workspace,omitempty"`
+	Root               string `json:"root" jsonschema:"Explicit fresh workspace root; must have no .beads marker"`
+	DataDir            string `json:"data_dir" jsonschema:"Absent persistent collection directory, with an existing parent"`
+	CollectionID       string `json:"collection_id" jsonschema:"Expected collection identity from the publication receipt"`
+	DoltCommit         string `json:"dolt_commit" jsonschema:"Expected exact Dolt checkpoint from the publication receipt"`
 }
 
 type catchUpInput struct {
-	Workspace  string `json:"workspace,omitempty"`
-	Root       string `json:"root,omitempty"`
-	DoltCommit string `json:"dolt_commit" jsonschema:"Exact remote Dolt checkpoint from a verified publication receipt; quiesce workers first"`
+	WorkspaceReference string `json:"workspace_ref,omitempty"`
+	Workspace          string `json:"workspace,omitempty"`
+	Root               string `json:"root,omitempty"`
+	DoltCommit         string `json:"dolt_commit" jsonschema:"Exact remote Dolt checkpoint from a verified publication receipt; quiesce workers first"`
 }
 
 type upsertInput struct {
-	Workspace       string  `json:"workspace,omitempty"`
-	Name            string  `json:"name"`
-	ExpectedVersion string  `json:"expected_version" jsonschema:"Observed blob version; empty string means create only"`
-	Text            *string `json:"text,omitempty" jsonschema:"UTF-8 content; supply exactly one of text or content_base64"`
-	ContentBase64   *string `json:"content_base64,omitempty" jsonschema:"Base64 for exact binary content"`
+	WorkspaceReference string  `json:"workspace_ref,omitempty"`
+	Workspace          string  `json:"workspace,omitempty"`
+	Name               string  `json:"name"`
+	ExpectedVersion    string  `json:"expected_version" jsonschema:"Observed blob version; empty string means create only"`
+	Text               *string `json:"text,omitempty" jsonschema:"UTF-8 content; supply exactly one of text or content_base64"`
+	ContentBase64      *string `json:"content_base64,omitempty" jsonschema:"Base64 for exact binary content"`
 }
 
 func toolResponse(response Response) (*mcp.CallToolResult, Response, error) {
@@ -63,12 +70,14 @@ func toolResponse(response Response) (*mcp.CallToolResult, Response, error) {
 func NewMCPServer(service Service) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "nugs", Version: "0.1.0"}, &mcp.ServerOptions{Instructions: agentArtifactInstructions})
 	for _, tool := range []struct{ name, operation, description string }{
+		{"workspace_context", "workspace.context", "Return the persistent client workspace identity without contacting storage"},
+		{"workspaces_list", "workspace.list", "Discover stable workspace references in the current engagement only; no remote requests"},
 		{"storage_bootstrap", "storage.bootstrap", "Explicitly bootstrap the selected data repository with an empty ordinary branch for native Dolt; preserves all existing branches and custom refs"},
 		{"workspace_inspect", "workspace.inspect", "Inspect a workspace manifest with repository branch pointers and document resources"},
 		{"documents_list", "documents.list", "Browse documents with versions and resource URIs"},
 	} {
 		mcp.AddTool(server, &mcp.Tool{Name: tool.name, Description: tool.description}, func(ctx context.Context, _ *mcp.CallToolRequest, in workspaceInput) (*mcp.CallToolResult, Response, error) {
-			return toolResponse(service.Execute(ctx, Request{Operation: tool.operation, Workspace: in.Workspace}))
+			return toolResponse(service.Execute(ctx, Request{Operation: tool.operation, Workspace: in.Workspace, WorkspaceReference: in.WorkspaceReference}))
 		})
 	}
 	for _, tool := range []struct{ name, operation, description string }{
@@ -77,20 +86,20 @@ func NewMCPServer(service Service) *mcp.Server {
 		{"beads_publish", "beads.publish", "Checkpoint workspace Beads, push without force, and verify an independent native recovery; quiesce workers before handoff; divergence stops publication"},
 	} {
 		mcp.AddTool(server, &mcp.Tool{Name: tool.name, Description: tool.description}, func(ctx context.Context, _ *mcp.CallToolRequest, in beadsInput) (*mcp.CallToolResult, Response, error) {
-			return toolResponse(service.Execute(ctx, Request{Operation: tool.operation, Workspace: in.Workspace, Root: in.Root}))
+			return toolResponse(service.Execute(ctx, Request{Operation: tool.operation, Workspace: in.Workspace, WorkspaceReference: in.WorkspaceReference, Root: in.Root}))
 		})
 	}
 	mcp.AddTool(server, &mcp.Tool{Name: "workspace_provision", Description: "Observe explicitly selected local repository branches and publish a version-checked workspace manifest; does not push source code"}, func(ctx context.Context, _ *mcp.CallToolRequest, in provisionInput) (*mcp.CallToolResult, Response, error) {
-		return toolResponse(service.Execute(ctx, Request{Operation: "workspace.provision", Workspace: in.Workspace, Root: in.Root, Repositories: in.Repositories, ExpectedVersion: in.ExpectedVersion}))
+		return toolResponse(service.Execute(ctx, Request{Operation: "workspace.provision", Workspace: in.Workspace, WorkspaceReference: in.WorkspaceReference, Root: in.Root, Repositories: in.Repositories, ExpectedVersion: in.ExpectedVersion}))
 	})
 	mcp.AddTool(server, &mcp.Tool{Name: "beads_restore", Description: "Restore an exact native checkpoint and collection identity into a fresh workspace; refuses existing markers and data directories"}, func(ctx context.Context, _ *mcp.CallToolRequest, in restoreInput) (*mcp.CallToolResult, Response, error) {
-		return toolResponse(service.Execute(ctx, Request{Operation: "beads.restore", Workspace: in.Workspace, Root: in.Root, DataDir: in.DataDir, CollectionID: in.CollectionID, DoltCommit: in.DoltCommit}))
+		return toolResponse(service.Execute(ctx, Request{Operation: "beads.restore", Workspace: in.Workspace, WorkspaceReference: in.WorkspaceReference, Root: in.Root, DataDir: in.DataDir, CollectionID: in.CollectionID, DoltCommit: in.DoltCommit}))
 	})
 	mcp.AddTool(server, &mcp.Tool{Name: "beads_catch_up", Description: "Fetch and clean-merge an exact native checkpoint through Beads; never pull with auto-resolution or publish a winner; quiesce workers first"}, func(ctx context.Context, _ *mcp.CallToolRequest, in catchUpInput) (*mcp.CallToolResult, Response, error) {
-		return toolResponse(service.Execute(ctx, Request{Operation: "beads.catch-up", Workspace: in.Workspace, Root: in.Root, DoltCommit: in.DoltCommit}))
+		return toolResponse(service.Execute(ctx, Request{Operation: "beads.catch-up", Workspace: in.Workspace, WorkspaceReference: in.WorkspaceReference, Root: in.Root, DoltCommit: in.DoltCommit}))
 	})
 	mcp.AddTool(server, &mcp.Tool{Name: "document_read", Description: "Read exact document content and its observed version"}, func(ctx context.Context, _ *mcp.CallToolRequest, in readInput) (*mcp.CallToolResult, Response, error) {
-		return toolResponse(service.Execute(ctx, Request{Operation: "documents.read", Workspace: in.Workspace, Name: in.Name}))
+		return toolResponse(service.Execute(ctx, Request{Operation: "documents.read", Workspace: in.Workspace, WorkspaceReference: in.WorkspaceReference, Name: in.Name}))
 	})
 	mcp.AddTool(server, &mcp.Tool{Name: "document_upsert", Description: "Store documents and intermediate artifacts such as form JSON outside source refs; create or version-check updates, reconcile clean changes and publish"}, func(ctx context.Context, _ *mcp.CallToolRequest, in upsertInput) (*mcp.CallToolResult, Response, error) {
 		var content []byte
@@ -109,7 +118,7 @@ func NewMCPServer(service Service) *mcp.Server {
 		if err != nil {
 			return toolResponse(Response{Workspace: in.Workspace, Error: err.(*OperationError)})
 		}
-		return toolResponse(service.Execute(ctx, Request{Operation: "documents.upsert", Workspace: in.Workspace, Name: in.Name, ExpectedVersion: in.ExpectedVersion, Content: content}))
+		return toolResponse(service.Execute(ctx, Request{Operation: "documents.upsert", Workspace: in.Workspace, WorkspaceReference: in.WorkspaceReference, Name: in.Name, ExpectedVersion: in.ExpectedVersion, Content: content}))
 	})
 	server.AddResourceTemplate(&mcp.ResourceTemplate{URITemplate: "nugs://workspace/{workspace}/documents/{name}", Name: "Workspace document", Description: "Read a document; obtain names and versions using documents_list"}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 		u, err := url.Parse(req.Params.URI)
@@ -124,12 +133,21 @@ func NewMCPServer(service Service) *mcp.Server {
 		if err != nil {
 			return nil, err
 		}
-		doc, err := (Store{Remote: service.Remote, CacheDir: service.CacheDir, Workspace: parts[0]}).Read(ctx, name)
+		input := Request{Operation: "documents.read", Name: name, Workspace: parts[0]}
+		if service.RegistryPath != "" && validWorkspaceReference(parts[0]) {
+			input.Workspace, input.WorkspaceReference = "", parts[0]
+		}
+		response := service.Execute(ctx, input)
+		if response.Error != nil {
+			return nil, response.Error
+		}
+		doc := response.Document
+		content, err := base64.StdEncoding.DecodeString(doc.ContentBase64)
 		if err != nil {
 			return nil, err
 		}
 		// A non-nil empty blob must still serialize as an explicit empty payload.
-		blob := append([]byte{}, doc.Content...)
+		blob := append([]byte{}, content...)
 		return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{URI: req.Params.URI, MIMEType: doc.MediaType, Blob: blob}}}, nil
 	})
 	return server

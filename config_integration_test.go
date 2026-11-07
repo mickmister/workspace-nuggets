@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-func TestCentralConfigAndBranchDefaults(t *testing.T) {
+func TestCentralPolicyAndPersistentDefaults(t *testing.T) {
 	g := newGitServer(t)
 	repo := sourceRepository(t, g, "source")
 	t.Chdir(repo)
@@ -20,7 +20,7 @@ func TestCentralConfigAndBranchDefaults(t *testing.T) {
 		code := RunCLI(context.Background(), args, strings.NewReader(input), &stdout, &stderr)
 		return code, append(stdout.Bytes(), stderr.Bytes()...)
 	}
-	if code, out := cli("", "config", "set", "--remote", g.url); code != 0 {
+	if code, out := cli("", "config", "set", "--engagement", "client-a", "--remote", g.url); code != 0 {
 		t.Fatalf("configure machine remote: %d, %s", code, out)
 	}
 	filename, err := ConfigPath()
@@ -30,8 +30,14 @@ func TestCentralConfigAndBranchDefaults(t *testing.T) {
 	if filename != filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "nugs", "config.json") {
 		t.Fatalf("config is not in central user directory: %s", filename)
 	}
+	if code, _ := cli("", "documents", "list"); code == 0 {
+		t.Fatal("ordinary command silently attached using global policy")
+	}
+	if code, out := cli("", "workspace", "init"); code != 0 {
+		t.Fatalf("policy-derived attachment: %d, %s", code, out)
+	}
 	if code, out := cli("stored with defaults", "documents", "upsert", "--name", "notes.md"); code != 0 {
-		t.Fatalf("upload using implied config and branch slug: %d, %s", code, out)
+		t.Fatalf("upload using persistent context: %d, %s", code, out)
 	}
 	if doc, err := g.store("feature-workspace").Read(context.Background(), "notes.md"); err != nil || string(doc.Content) != "stored with defaults" {
 		t.Fatalf("default workspace content: %+v, %v", doc, err)
@@ -41,8 +47,8 @@ func TestCentralConfigAndBranchDefaults(t *testing.T) {
 	if code != 0 || json.Unmarshal(out, &response) != nil || response.Workspace != "feature-workspace" {
 		t.Fatalf("inspect with defaults: %d, %s", code, out)
 	}
-	if code, out := cli("", "documents", "list", "--workspace", "explicit-workspace"); code != 0 || !bytes.Contains(out, []byte(`"workspace":"explicit-workspace"`)) {
-		t.Fatalf("workspace flag precedence: %d, %s", code, out)
+	if code, _ := cli("", "documents", "list", "--workspace", "explicit-workspace"); code == 0 {
+		t.Fatal("unregistered handle silently selected a namespace")
 	}
 	if code, out := cli("", "config", "set", "--cache", filepath.Join(g.root, "cache")); code != 0 {
 		t.Fatalf("cache update: %d, %s", code, out)
@@ -54,18 +60,25 @@ func TestCentralConfigAndBranchDefaults(t *testing.T) {
 	if err := saveConfig(filename, Config{Remote: "https://example.invalid/not-used.git"}); err != nil {
 		t.Fatal(err)
 	}
-	if code, out := cli("", "documents", "read", "--remote", g.url, "--name", "notes.md"); code != 0 {
-		t.Fatalf("remote flag precedence: %d, %s", code, out)
+	g.run(repo, "", "git", "branch", "-m", "renamed-workspace")
+	if code, out := cli("", "workspace", "init"); code != 0 {
+		t.Fatalf("idempotent setup reread edited machine policy/branch: %d, %s", code, out)
+	}
+	if code, out := cli("", "documents", "read", "--name", "notes.md"); code != 0 {
+		t.Fatalf("binding changed with machine default/branch: %d, %s", code, out)
+	}
+	if code, _ := cli("", "documents", "read", "--remote", "https://example.invalid/wrong.git", "--name", "notes.md"); code == 0 {
+		t.Fatal("remote override silently rebound workspace")
 	}
 	profile := filepath.Join(t.TempDir(), "config.json")
-	if err := saveConfig(profile, Config{Remote: g.url, CacheDir: "cache"}); err != nil {
+	if err := saveConfig(profile, Config{Remote: "https://example.invalid/not-used.git", CacheDir: "cache"}); err != nil {
 		t.Fatal(err)
 	}
 	if code, out := cli("", "documents", "read", "--config", profile, "--name", "notes.md"); code != 0 {
-		t.Fatalf("explicit config precedence: %d, %s", code, out)
+		t.Fatalf("config profile retargeted persistent binding: %d, %s", code, out)
 	}
-	if _, err := os.Stat(filepath.Join(filepath.Dir(profile), "cache")); err != nil {
-		t.Fatalf("relative config cache path: %v", err)
+	if _, err := os.Stat(filepath.Join(filepath.Dir(profile), "cache")); !os.IsNotExist(err) {
+		t.Fatalf("bound workspace used mutable profile cache: %v", err)
 	}
 	if code, _ := cli("", "documents", "list", "--config", filepath.Join(t.TempDir(), "missing.json"), "--remote", g.url); code != 2 {
 		t.Fatal("explicit missing config was ignored")
