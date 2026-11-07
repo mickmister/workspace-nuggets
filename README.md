@@ -264,6 +264,50 @@ MCP exposes the same operation as `beads_restore`. Restoration preserves native
 history and records; it creates only local routing/configuration, with auto-push
 and source Git operations disabled. It does not initialize a new task database.
 
+### Trusted fresh-runner context handoff
+
+For a fresh machine that must retain the original opaque workspace identity,
+publish from an already bound source workspace. Successful `nugs beads publish`
+returns an endpoint-free `handoff` object containing schema version, stable
+`workspace_ref`, engagement, existing storage namespace, native collection ID and
+exact verified Dolt checkpoint. The trusted coordinator passes that object to the
+runner independently of untrusted source/request/agent text.
+
+```sh
+# Trusted coordinator: retain .handoff from a verified bound publication.
+nugs beads publish > /tmp/opencode/publication.json
+jq -e '.handoff' /tmp/opencode/publication.json > /tmp/opencode/handoff.json
+
+# Trusted runner setup: existing empty root and persistent directory parent.
+# Storage URL/credentials come from setup secrets, not the handoff or agent.
+nugs workspace restore --root /path/to/fresh-workspace \
+  --data-dir /path/to/new-persistent-collection \
+  --file /path/to/handoff.json --remote "$NUGS_STORAGE_URL"
+
+# Ordinary calls now use the restored attachment, with no routing arguments.
+# Launch the MCP server from this directory to inherit the same context.
+cd /path/to/fresh-workspace
+nugs workspace context
+nugs beads inspect
+nugs documents list
+```
+
+`workspace restore` is a trusted CLI setup operation, not an agent-facing storage
+selector. It rejects incomplete/unknown handoff fields and conflicting existing
+identities, endpoints, namespaces or collections. It verifies native recovery
+**before** publishing the machine registry attachment. An unavailable/unpublished
+or advanced checkpoint fails without installing a replacement binding. Reusing an
+existing native marker/root is refused. A verified clone may be retained for
+recovery if final installation or registry publication fails; no live data is
+deleted to roll it back. Independent verification/peer roots use the same trusted
+operation and identity, with the exact checkpoint from a new verified publication.
+
+The descriptor is not a signed token and does not authorize itself: authenticating
+the dispatch and selecting its allowed workspace/store remain the coordinator's
+responsibility. No URL, credential, cache path or source-local filesystem path is
+carried in the handoff. No cross-engagement transfer or namespace migration is
+performed by importing it.
+
 For an already attached, quiesced workspace, use `nugs beads catch-up
 --dolt-commit HASH` (MCP `beads_catch_up`) with the remote publication's exact Dolt
 commit. Catch-up checkpoints local changes, independently validates the remote

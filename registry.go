@@ -172,6 +172,9 @@ func (r Registry) resolve(dir, ref, handle string) (WorkspaceBinding, string, er
 type BindingSetup struct {
 	Root, Reference, Engagement, Workspace, Remote string
 	Local                                          bool
+	handoff                                        *WorkspaceHandoff
+	dataDir                                        string
+	restored                                       **BeadsRestoration
 }
 
 // SetupWorkspace persists explicit onboarding only. Attaching does not fetch,
@@ -205,6 +208,9 @@ func SetupWorkspace(ctx context.Context, filename string, setup BindingSetup) (W
 		if a.Root != root {
 			continue
 		}
+		if setup.handoff != nil {
+			return WorkspaceContext{}, &OperationError{Code: "conflict", Message: "context restore requires a fresh unattached root"}
+		}
 		b, err := r.binding(a.Reference)
 		if err != nil {
 			return WorkspaceContext{}, err
@@ -223,7 +229,42 @@ func SetupWorkspace(ctx context.Context, filename string, setup BindingSetup) (W
 		}
 	}
 	var b WorkspaceBinding
-	if setup.Reference != "" {
+	newBinding := setup.Reference == ""
+	if setup.handoff != nil {
+		if err := setup.handoff.validate(); err != nil {
+			return WorkspaceContext{}, err
+		}
+		if setup.dataDir == "" || setup.Remote == "" || setup.Local {
+			return WorkspaceContext{}, invalid("context restore requires explicit storage and persistent data directory")
+		}
+		remote := setup.Remote
+		if !strings.Contains(remote, ":") {
+			remote, err = filepath.Abs(remote)
+			if err != nil {
+				return WorkspaceContext{}, err
+			}
+		}
+		newBinding = true
+		for _, existing := range r.Bindings {
+			if existing.Reference == setup.Reference {
+				if existing.WorkspaceContext != setup.handoff.WorkspaceContext || existing.Remote != remote ||
+					(existing.CollectionID != "" && existing.CollectionID != setup.handoff.CollectionID) {
+					return WorkspaceContext{}, &OperationError{Code: "conflict", Message: "handoff disagrees with registered identity, storage or collection"}
+				}
+				b, newBinding = existing, false
+			} else if existing.Remote == remote && existing.Workspace == setup.Workspace {
+				return WorkspaceContext{}, &OperationError{Code: "conflict", Message: "handoff would alias an existing storage namespace"}
+			}
+		}
+		if newBinding {
+			b = WorkspaceBinding{WorkspaceContext: setup.handoff.WorkspaceContext, Remote: remote}
+			b.CacheDir, err = bindingCache(b.WorkspaceContext)
+			if err != nil {
+				return WorkspaceContext{}, err
+			}
+		}
+		b.CollectionID = setup.handoff.CollectionID
+	} else if setup.Reference != "" {
 		if setup.Remote != "" || setup.Engagement != "" || setup.Workspace != "" || setup.Local {
 			return WorkspaceContext{}, invalid("attach by workspace_ref without another storage selector")
 		}
@@ -247,12 +288,10 @@ func SetupWorkspace(ctx context.Context, filename string, setup BindingSetup) (W
 				return WorkspaceContext{}, err
 			}
 		}
-		hash := sha256.Sum256([]byte(b.Engagement))
-		cache, err := os.UserCacheDir()
+		b.CacheDir, err = bindingCache(b.WorkspaceContext)
 		if err != nil {
 			return WorkspaceContext{}, err
 		}
-		b.CacheDir = filepath.Join(cache, "nugs", "engagements", hex.EncodeToString(hash[:]), b.Reference)
 		if setup.Local {
 			b.Remote = filepath.Join(filepath.Dir(filename), "stores", b.Reference+".git")
 		}
@@ -299,7 +338,16 @@ func SetupWorkspace(ctx context.Context, filename string, setup BindingSetup) (W
 			return WorkspaceContext{}, err
 		}
 	}
-	if setup.Reference == "" {
+	if setup.handoff != nil {
+		restored, err := (Store{Remote: b.Remote, Workspace: b.Workspace, CacheDir: b.CacheDir}).RestoreBeads(ctx, root, setup.dataDir, b.CollectionID, setup.handoff.DoltCommit)
+		if setup.restored != nil {
+			*setup.restored = restored
+		}
+		if err != nil {
+			return WorkspaceContext{}, err
+		}
+	}
+	if newBinding {
 		r.Bindings = append(r.Bindings, b)
 	} else {
 		for i := range r.Bindings {
@@ -313,6 +361,15 @@ func SetupWorkspace(ctx context.Context, filename string, setup BindingSetup) (W
 		return WorkspaceContext{}, err
 	}
 	return b.WorkspaceContext, nil
+}
+
+func bindingCache(selected WorkspaceContext) (string, error) {
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return "", err
+	}
+	hash := sha256.Sum256([]byte(selected.Engagement))
+	return filepath.Join(cache, "nugs", "engagements", hex.EncodeToString(hash[:]), selected.Reference), nil
 }
 
 func withinDirectory(parent, child string) bool {

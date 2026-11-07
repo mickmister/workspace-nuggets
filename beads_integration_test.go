@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/gofrs/flock"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func TestWorkspaceBeadsDiscovery(t *testing.T) {
@@ -239,6 +240,88 @@ func TestWorkspaceBeadsNativeConfiguration(t *testing.T) {
 	if _, err := store.RestoreBeads(ctx, filepath.Join(g.root, "missing-workspace"), dataDir, info.CollectionID, publication.DoltCommit); err == nil {
 		t.Fatal("restoration accepted missing root")
 	}
+	t.Run("trusted context restore preserves identity on a fresh registry", func(t *testing.T) {
+		published := boundService.Execute(ctx, Request{Operation: "beads.publish"})
+		if published.Error != nil || published.Handoff == nil || published.Handoff.Reference != attached.Reference {
+			t.Fatalf("bound publication did not emit verified handoff: %+v", published)
+		}
+		h := *published.Handoff
+		contextRoot := filepath.Join(g.root, "context-workspace")
+		if err := os.Mkdir(contextRoot, 0700); err != nil {
+			t.Fatal(err)
+		}
+		contextData := filepath.Join(g.root, "context-persistent")
+		machineRegistry, _ := RegistryPath()
+		bad := h
+		bad.DoltCommit = strings.Repeat("0", 32)
+		failed := RestoreWorkspaceContext(ctx, machineRegistry, contextRoot, contextData, store.Remote, bad)
+		if failed.Error == nil {
+			t.Fatal("unpublished checkpoint accepted")
+		}
+		if _, err := os.Stat(machineRegistry); !os.IsNotExist(err) {
+			t.Fatal("failed verification published a registry binding")
+		}
+		if _, err := os.Stat(filepath.Join(contextRoot, ".beads")); !os.IsNotExist(err) {
+			t.Fatal("failed verification attached native state")
+		}
+		body, _ := json.Marshal(h)
+		var out, diagnostics strings.Builder
+		code := RunCLI(ctx, []string{"workspace", "restore", "--root", contextRoot, "--data-dir", contextData, "--remote", store.Remote}, strings.NewReader(string(body)), &out, &diagnostics)
+		var result Response
+		if err := json.Unmarshal([]byte(out.String()), &result); err != nil || code != 0 || result.Restoration == nil || !result.Restoration.Verified || result.WorkspaceReference != h.Reference {
+			t.Fatalf("CLI trusted context restore: %d, %s, %s (%v)", code, out.String(), diagnostics.String(), err)
+		}
+		t.Chdir(contextRoot)
+		out.Reset()
+		diagnostics.Reset()
+		if code := RunCLI(ctx, []string{"beads", "inspect"}, strings.NewReader(""), &out, &diagnostics); code != 0 {
+			t.Fatalf("ordinary CLI did not inherit restored binding: %s %s", out.String(), diagnostics.String())
+		}
+		if err := json.Unmarshal([]byte(out.String()), &result); err != nil || result.Beads.CollectionID != h.CollectionID || result.WorkspaceReference != h.Reference {
+			t.Fatalf("contextual native identity: %+v, %v", result, err)
+		}
+		service := Service{RegistryPath: machineRegistry, ContextDir: contextRoot}
+		server := NewMCPServer(service)
+		a, b := mcp.NewInMemoryTransports()
+		ss, err := server.Connect(ctx, a, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer ss.Close()
+		client := mcp.NewClient(&mcp.Implementation{Name: "restored-context-test", Version: "1"}, nil)
+		cs, err := client.Connect(ctx, b, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer cs.Close()
+		tool, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "workspace_context", Arguments: map[string]any{}})
+		if err != nil || tool.IsError {
+			t.Fatalf("MCP restored context: %+v %v", tool, err)
+		}
+		encoded, _ := json.Marshal(tool.StructuredContent)
+		if err := json.Unmarshal(encoded, &result); err != nil || result.WorkspaceReference != h.Reference || result.Engagement != h.Engagement {
+			t.Fatalf("MCP identity differs: %+v %v", result, err)
+		}
+		peerRoot := filepath.Join(g.root, "context-peer")
+		if err := os.Mkdir(peerRoot, 0700); err != nil {
+			t.Fatal(err)
+		}
+		wrong := h
+		wrong.Engagement = "other"
+		if got := RestoreWorkspaceContext(ctx, machineRegistry, peerRoot, filepath.Join(g.root, "context-peer-data"), store.Remote, wrong); got.Error == nil {
+			t.Fatal("stable reference silently rebound across engagements")
+		}
+		if _, err := os.Stat(filepath.Join(peerRoot, ".beads")); !os.IsNotExist(err) {
+			t.Fatal("conflicting import changed peer root")
+		}
+		peer := RestoreWorkspaceContext(ctx, machineRegistry, peerRoot, filepath.Join(g.root, "context-peer-data"), store.Remote, h)
+		if peer.Error != nil || peer.WorkspaceReference != h.Reference || !peer.Restoration.Verified {
+			t.Fatalf("explicit peer import did not preserve identity: %+v", peer)
+		}
+		if got := RestoreWorkspaceContext(ctx, machineRegistry, contextRoot, filepath.Join(g.root, "context-replacement"), store.Remote, h); got.Error == nil {
+			t.Fatal("restored context was implicitly replaced")
+		}
+	})
 	clone := filepath.Join(g.root, "recovered")
 	g.run(g.root, "", "dolt", "clone", "--ref", info.DesiredRef, info.DesiredURL, clone)
 	rows := g.run(clone, "", "dolt", "sql", "-r", "csv", "-q", "SELECT id,title,description FROM issues")

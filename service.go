@@ -57,6 +57,7 @@ type Response struct {
 	Publication        *BeadsPublication  `json:"publication,omitempty"`
 	Restoration        *BeadsRestoration  `json:"restoration,omitempty"`
 	CatchUp            *BeadsCatchUp      `json:"catch_up,omitempty"`
+	Handoff            *WorkspaceHandoff  `json:"handoff,omitempty"`
 }
 
 func ResourceURI(workspace, name string) string {
@@ -147,6 +148,10 @@ func (s Service) Execute(ctx context.Context, req Request) Response {
 	case "beads.publish":
 		res.Ref = "refs/dolt/" + req.Workspace
 		res.Publication, err = store.PublishBeads(ctx, req.Root)
+		if err == nil && binding != nil && res.Publication != nil && res.Publication.Verified {
+			res.Handoff = &WorkspaceHandoff{SchemaVersion: 1, WorkspaceContext: binding.WorkspaceContext,
+				CollectionID: res.Publication.CollectionID, DoltCommit: res.Publication.DoltCommit}
+		}
 	case "beads.restore":
 		res.Ref = "refs/dolt/" + req.Workspace
 		res.Restoration, err = store.RestoreBeads(ctx, req.Root, req.DataDir, req.CollectionID, req.DoltCommit)

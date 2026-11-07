@@ -18,6 +18,7 @@ const usage = `Usage:
   nugs config show
   nugs workspace init [--root DIR] [--workspace HANDLE]
   nugs workspace attach --root DIR [--workspace-ref REF | --engagement NAME --remote URL --workspace HANDLE]
+  nugs workspace restore --root DIR --data-dir DIR --file HANDOFF.json --remote URL
   nugs workspace context
   nugs workspace list
   nugs storage bootstrap
@@ -163,6 +164,35 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
+	}
+	if operation == "workspace.restore" {
+		if !seen["remote"] || *remote == "" || seen["workspace"] || seen["workspace-ref"] || seen["engagement"] || seen["collection-id"] || seen["dolt-commit"] {
+			fmt.Fprintln(stderr, "workspace restore requires explicit setup --remote and a handoff file, without conflicting identity selectors")
+			return 2
+		}
+		var content []byte
+		if *file == "-" {
+			content, err = io.ReadAll(io.LimitReader(stdin, 8193))
+		} else {
+			content, err = os.ReadFile(*file)
+		}
+		var h *WorkspaceHandoff
+		if err == nil {
+			h, err = ParseWorkspaceHandoff(content)
+		}
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		response := RestoreWorkspaceContext(ctx, registryPath, *root, *dataDir, *remote, *h)
+		if err := json.NewEncoder(stdout).Encode(response); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		if response.Error != nil {
+			return 1
+		}
+		return 0
 	}
 	if operation == "workspace.init" || operation == "workspace.attach" {
 		setup := BindingSetup{Root: *root, Reference: *workspaceRef, Engagement: *engagement, Workspace: *workspace, Remote: *remote}
