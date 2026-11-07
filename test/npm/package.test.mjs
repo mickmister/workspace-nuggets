@@ -14,6 +14,8 @@ test('the actual npm tarball installs without scripts, runs the CLI and contains
   assert.ok(process.env.npm_execpath, 'run this check with npm run test:package');
   const npm = args => execFileSync(process.execPath, [process.env.npm_execpath, ...args], { cwd: root, encoding: 'utf8' });
   const [packed] = JSON.parse(npm(['pack', '--ignore-scripts', '--json', '--pack-destination', scratch]));
+  assert.equal(packed.name, '@mickmister/nugs');
+  assert.equal(packed.filename, `mickmister-nugs-${packed.version}.tgz`);
   const files = new Set(packed.files.map(file => file.path));
   for (const name of [...readdirSync(root).filter(name => name.endsWith('.go')), 'go.mod', 'go.sum', 'cmd/nugs/main.go', 'bin/nugs.js']) {
     assert.ok(files.has(name), `published package is missing source/runtime file ${name}`);
@@ -26,7 +28,7 @@ test('the actual npm tarball installs without scripts, runs the CLI and contains
   }
   const prefix = path.join(scratch, 'installed');
   npm(['install', '--prefix', prefix, '--ignore-scripts', '--offline', '--no-audit', '--no-fund', path.join(scratch, packed.filename)]);
-  const installed = path.join(prefix, 'node_modules', 'nugs');
+  const installed = path.join(prefix, 'node_modules', '@mickmister', 'nugs');
   const { version } = JSON.parse(readFileSync(path.join(installed, 'package.json')));
   const launcher = path.join(installed, 'bin', 'nugs.js');
   const run = args => execFileSync(process.execPath, [launcher, ...args], { cwd: scratch, encoding: 'utf8', stdio: 'pipe' });
@@ -42,5 +44,5 @@ test('the actual npm tarball installs without scripts, runs the CLI and contains
     cwd: installed, env: { ...process.env, GOWORK: 'off' }, stdio: 'pipe',
   });
   assert.match(execFileSync(rebuilt, ['--help'], { encoding: 'utf8' }), /Usage:/);
-  console.log(`Verified nugs@${version}: ${packed.files.length} files, ${packed.size} compressed bytes, bundled Go source rebuild passed`);
+  console.log(`Verified @mickmister/nugs@${version}: ${packed.files.length} files, ${packed.size} compressed bytes, bundled Go source rebuild passed`);
 });

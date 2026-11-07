@@ -30,16 +30,19 @@ test('release preparation updates package and lockfile exactly and emits workflo
   for (const name of ['release.mjs', 'prepare-release.mjs']) {
     copyFileSync(new URL(`../../scripts/${name}`, import.meta.url), path.join(root, 'scripts', name));
   }
-  writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'nugs', version: '0.0.0-development' }));
-  writeFileSync(path.join(root, 'package-lock.json'), JSON.stringify({ name: 'nugs', version: '0.0.0-development', packages: { '': { name: 'nugs', version: '0.0.0-development' } } }));
+  writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: '@mickmister/nugs', version: '0.0.0-development' }));
+  writeFileSync(path.join(root, 'package-lock.json'), JSON.stringify({ name: '@mickmister/nugs', version: '0.0.0-development', packages: { '': { name: '@mickmister/nugs', version: '0.0.0-development' } } }));
   const output = path.join(root, 'outputs');
   execFileSync(process.execPath, [path.join(root, 'scripts', 'prepare-release.mjs')], {
     env: { ...process.env, GITHUB_REF_NAME: 'v3.2.1-rc.2', GITHUB_OUTPUT: output },
   });
   assert.equal(JSON.parse(readFileSync(path.join(root, 'package.json'))).version, '3.2.1-rc.2');
+  assert.equal(JSON.parse(readFileSync(path.join(root, 'package.json'))).name, '@mickmister/nugs');
   const lock = JSON.parse(readFileSync(path.join(root, 'package-lock.json')));
   assert.equal(lock.version, '3.2.1-rc.2');
   assert.equal(lock.packages[''].version, '3.2.1-rc.2');
+  assert.equal(lock.name, '@mickmister/nugs');
+  assert.equal(lock.packages[''].name, '@mickmister/nugs');
   assert.equal(readFileSync(output, 'utf8'), 'version=3.2.1-rc.2\ndist_tag=rc\n');
   const before = readFileSync(path.join(root, 'package.json'), 'utf8');
   assert.throws(() => execFileSync(process.execPath, [path.join(root, 'scripts', 'prepare-release.mjs'), 'v01.2.3'], { stdio: 'pipe' }));

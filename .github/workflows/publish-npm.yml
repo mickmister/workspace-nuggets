@@ -1,4 +1,4 @@
-name: Publish nugs to npm
+name: Publish @mickmister/nugs to npm
 
 on:
   push:
@@ -42,7 +42,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: npm-package
-          path: nugs-*.tgz
+          path: mickmister-nugs-*.tgz
           if-no-files-found: error
 
   smoke:
@@ -65,7 +65,7 @@ jobs:
         env:
           RELEASE_VERSION: ${{ needs.package.outputs.version }}
         run: |
-          npm install --ignore-scripts --no-audit --no-fund --offline --prefix installed ./nugs-*.tgz
+          npm install --ignore-scripts --no-audit --no-fund --offline --prefix installed ./mickmister-nugs-*.tgz
           npm exec --offline --prefix installed -- nugs --help
           test "$(npm exec --offline --prefix installed -- nugs --version)" = "nugs $RELEASE_VERSION"
 
@@ -89,4 +89,4 @@ jobs:
       - name: Publish the tested tarball using OIDC
         env:
           NPM_DIST_TAG: ${{ needs.package.outputs.dist_tag }}
-        run: npm publish ./nugs-*.tgz --access public --tag "$NPM_DIST_TAG"
+        run: npm publish ./mickmister-nugs-*.tgz --access public --tag "$NPM_DIST_TAG"

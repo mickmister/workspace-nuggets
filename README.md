@@ -32,13 +32,14 @@ and uses private Git access controls for v1.
 Install the published CLI with Node.js 20+ and npm:
 
 ```sh
-npm install --global nugs
+npm install --global @mickmister/nugs
 nugs --version
 # Or run without a global installation:
-npx nugs --help
+npx @mickmister/nugs --help
 ```
 
-The `nugs` npm package includes prebuilt executables for Linux, macOS and Windows
+The `@mickmister/nugs` npm package installs the executable named `nugs` and includes
+prebuilt executables for Linux, macOS and Windows
 on x64 and ARM64, plus the Go source, tests, `go.mod` and `go.sum`. Installation
 needs no Go compiler, install scripts, or separate binary downloads. A small Node
 launcher runs the bundled native executable with inherited cwd, environment and
@@ -391,7 +392,7 @@ branch/commit; the document backend does not bootstrap an unrelated source branc
 ## Publish npm releases
 
 The release repository is `mickmister/workspace-nuggets`. Pushing a SemVer tag
-such as `v1.2.3` runs `.github/workflows/publish-npm.yml` and publishes **`nugs`**
+such as `v1.2.3` runs `.github/workflows/publish-npm.yml` and publishes **`@mickmister/nugs`**
 at **`1.2.3`**. The workflow removes the single `v` prefix, validates the exact
 version, updates npm metadata/lockfile in the runner only, and embeds that same
 version in every native binary (`nugs --version`) and the MCP server identity.
@@ -406,10 +407,10 @@ Only after those jobs pass does it publish that same tested tarball.
 
 One-time npm setup:
 
-1. Ensure your npm account owns the unscoped `nugs` package. A new package needs
+1. Ensure your npm account can publish the scoped `@mickmister/nugs` package. A new package needs
    its initial publication/ownership established before its trusted publisher can
    be configured; the workflow does not substitute a long-lived npm token.
-2. In **nugs → Settings → Trusted publishing**, add a GitHub Actions publisher:
+2. In **@mickmister/nugs → Settings → Trusted publishing**, add a GitHub Actions publisher:
    owner **`mickmister`**, repository **`workspace-nuggets`**, workflow filename
    **`publish-npm.yml`** (filename only), with no environment name. Allow direct
    **`npm publish`**, as required by this workflow.
@@ -429,7 +430,7 @@ version **different from the first CI release**, for example:
 ```sh
 npm login
 node scripts/prepare-release.mjs v0.0.0
-npm publish --tag bootstrap
+npm publish --access public --tag bootstrap
 ```
 
 `prepack` builds all binaries. Configure the trusted publisher after that initial

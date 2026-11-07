@@ -1,5 +1,5 @@
 {
-  "name": "nugs",
+  "name": "@mickmister/nugs",
   "version": "0.0.0-development",
   "description": "Git-backed workspace context, documents and native Beads persistence for agents",
   "type": "module",
