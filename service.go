@@ -48,6 +48,7 @@ type Response struct {
 	Storage         *StorageReceipt   `json:"storage,omitempty"`
 	Publication     *BeadsPublication `json:"publication,omitempty"`
 	Restoration     *BeadsRestoration `json:"restoration,omitempty"`
+	CatchUp         *BeadsCatchUp     `json:"catch_up,omitempty"`
 }
 
 func ResourceURI(workspace, name string) string {
@@ -77,6 +78,9 @@ func (s Service) Execute(ctx context.Context, req Request) Response {
 	case "beads.restore":
 		res.Ref = "refs/dolt/" + req.Workspace
 		res.Restoration, err = store.RestoreBeads(ctx, req.Root, req.DataDir, req.CollectionID, req.DoltCommit)
+	case "beads.catch-up":
+		res.Ref = "refs/dolt/" + req.Workspace
+		res.CatchUp, err = store.CatchUpBeads(ctx, req.Root, req.DoltCommit)
 	case "beads.configure":
 		res.Ref = "refs/dolt/" + req.Workspace
 		res.Beads, err = store.ConfigureBeads(ctx, req.Root)

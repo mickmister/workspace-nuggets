@@ -41,6 +41,12 @@ type restoreInput struct {
 	DoltCommit   string `json:"dolt_commit" jsonschema:"Expected exact Dolt checkpoint from the publication receipt"`
 }
 
+type catchUpInput struct {
+	Workspace  string `json:"workspace,omitempty"`
+	Root       string `json:"root,omitempty"`
+	DoltCommit string `json:"dolt_commit" jsonschema:"Exact remote Dolt checkpoint from a verified publication receipt; quiesce workers first"`
+}
+
 type upsertInput struct {
 	Workspace       string  `json:"workspace,omitempty"`
 	Name            string  `json:"name"`
@@ -79,6 +85,9 @@ func NewMCPServer(service Service) *mcp.Server {
 	})
 	mcp.AddTool(server, &mcp.Tool{Name: "beads_restore", Description: "Restore an exact native checkpoint and collection identity into a fresh workspace; refuses existing markers and data directories"}, func(ctx context.Context, _ *mcp.CallToolRequest, in restoreInput) (*mcp.CallToolResult, Response, error) {
 		return toolResponse(service.Execute(ctx, Request{Operation: "beads.restore", Workspace: in.Workspace, Root: in.Root, DataDir: in.DataDir, CollectionID: in.CollectionID, DoltCommit: in.DoltCommit}))
+	})
+	mcp.AddTool(server, &mcp.Tool{Name: "beads_catch_up", Description: "Fetch and clean-merge an exact native checkpoint through Beads; never pull with auto-resolution or publish a winner; quiesce workers first"}, func(ctx context.Context, _ *mcp.CallToolRequest, in catchUpInput) (*mcp.CallToolResult, Response, error) {
+		return toolResponse(service.Execute(ctx, Request{Operation: "beads.catch-up", Workspace: in.Workspace, Root: in.Root, DoltCommit: in.DoltCommit}))
 	})
 	mcp.AddTool(server, &mcp.Tool{Name: "document_read", Description: "Read exact document content and its observed version"}, func(ctx context.Context, _ *mcp.CallToolRequest, in readInput) (*mcp.CallToolResult, Response, error) {
 		return toolResponse(service.Execute(ctx, Request{Operation: "documents.read", Workspace: in.Workspace, Name: in.Name}))

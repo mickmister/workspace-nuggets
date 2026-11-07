@@ -239,6 +239,46 @@ func TestWorkspaceBeadsNativeConfiguration(t *testing.T) {
 	g.run(clone, "", "dolt", "add", ".")
 	g.run(clone, "", "dolt", "commit", "-m", "Concurrent fixture update")
 	g.run(clone, "", "dolt", "push", "origin", "main")
+	remoteHead := func() string {
+		t.Helper()
+		out, err := runNativeDolt(ctx, clone, "sql", "-r", "json", "-q", "SELECT DOLT_HASHOF('HEAD') AS commit_hash")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var result struct {
+			Rows []struct {
+				Commit string `json:"commit_hash"`
+			} `json:"rows"`
+		}
+		if err := json.Unmarshal(out, &result); err != nil || len(result.Rows) != 1 {
+			t.Fatalf("remote checkpoint: %s, %v", out, err)
+		}
+		return result.Rows[0].Commit
+	}
+	remoteCommit := remoteHead()
+	caughtUp, err := store.CatchUpBeads(ctx, freshRoot, remoteCommit)
+	if err != nil || caughtUp == nil || !caughtUp.Verified || caughtUp.DoltCommit != remoteCommit {
+		t.Fatalf("native fast-forward catch-up: %+v, %v", caughtUp, err)
+	}
+	// Clean divergence must preserve changes to both independent issues.
+	if _, err := runBeads(ctx, freshRoot, "update", dependency.ID, "--description", "Local independent edit"); err != nil {
+		t.Fatal(err)
+	}
+	g.run(clone, "", "dolt", "sql", "-q", "UPDATE issues SET description='Remote independent edit' WHERE id='"+issue.ID+"'")
+	g.run(clone, "", "dolt", "add", ".")
+	g.run(clone, "", "dolt", "commit", "-m", "Independent remote fixture update")
+	g.run(clone, "", "dolt", "push", "origin", "main")
+	remoteCommit = remoteHead()
+	caughtUp, err = store.CatchUpBeads(ctx, freshRoot, remoteCommit)
+	if err != nil || caughtUp == nil || !caughtUp.Verified {
+		t.Fatalf("native clean divergent catch-up: %+v, %v", caughtUp, err)
+	}
+	for id, want := range map[string]string{issue.ID: "Remote independent edit", dependency.ID: "Local independent edit"} {
+		out, err := runBeads(ctx, freshRoot, "show", id, "--json", "--readonly")
+		if err != nil || !strings.Contains(string(out), want) {
+			t.Fatalf("catch-up lost %s: %s, %v", id, out, err)
+		}
+	}
 	remoteBefore := g.run(g.root, "", "git", "ls-remote", g.url, info.DesiredRef)
 	if _, err := runBeads(ctx, root, "update", issue.ID, "--title", "Local checkpoint retained"); err != nil {
 		t.Fatal(err)
@@ -252,5 +292,54 @@ func TestWorkspaceBeadsNativeConfiguration(t *testing.T) {
 	local, err := runBeads(ctx, root, "show", issue.ID, "--json", "--readonly")
 	if err != nil || !strings.Contains(string(local), "Local checkpoint retained") {
 		t.Fatalf("failed publication lost local checkpoint: %s, %v", local, err)
+	}
+	var beforeConflict beadsVersion
+	if err := beadsJSON(ctx, root, &beforeConflict, "vc", "status"); err != nil {
+		t.Fatal(err)
+	}
+	refused, err := store.CatchUpBeads(ctx, root, remoteCommit)
+	if !errors.As(err, &failure) || failure.Code != "merge_failed" || refused == nil || refused.Verified || refused.BeforeCommit != beforeConflict.Commit {
+		t.Fatalf("native conflict auto-resolved or lost checkpoint evidence: %+v, %v", refused, err)
+	}
+	var afterConflict beadsVersion
+	if err := beadsJSON(ctx, root, &afterConflict, "vc", "status"); err != nil || afterConflict != beforeConflict {
+		t.Fatalf("conflicting merge changed local checkpoint: %+v, %v", afterConflict, err)
+	}
+	if remoteAfter := g.run(g.root, "", "git", "ls-remote", g.url, info.DesiredRef); remoteAfter != remoteBefore {
+		t.Fatal("catch-up changed published remote")
+	}
+	// A new dependency races deletion of its target. Unlike the row conflict
+	// above, the surviving rows merge independently but violate a foreign key.
+	if _, err := store.PublishBeads(ctx, freshRoot); err != nil {
+		t.Fatal(err)
+	}
+	g.run(clone, "", "dolt", "pull", "origin", "main")
+	created, err := runBeads(ctx, freshRoot, "create", "Concurrent dependent issue", "--description", "Constraint violation fixture", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dependent struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(created, &dependent); err != nil || dependent.ID == "" {
+		t.Fatalf("dependent issue: %s, %v", created, err)
+	}
+	if _, err := runBeads(ctx, freshRoot, "dep", "add", dependent.ID, dependency.ID); err != nil {
+		t.Fatal(err)
+	}
+	g.run(clone, "", "dolt", "sql", "-q", "DELETE FROM dependencies WHERE depends_on_issue_id='"+dependency.ID+"' OR issue_id='"+dependency.ID+"'; DELETE FROM issues WHERE id='"+dependency.ID+"'")
+	g.run(clone, "", "dolt", "add", ".")
+	g.run(clone, "", "dolt", "commit", "-m", "Delete dependency target on remote")
+	g.run(clone, "", "dolt", "push", "origin", "main")
+	remoteCommit = remoteHead()
+	if err := beadsJSON(ctx, freshRoot, &beforeConflict, "vc", "status"); err != nil {
+		t.Fatal(err)
+	}
+	refused, err = store.CatchUpBeads(ctx, freshRoot, remoteCommit)
+	if !errors.As(err, &failure) || failure.Code != "merge_failed" || refused == nil || refused.Verified {
+		t.Fatalf("constraint violation was accepted: %+v, %v", refused, err)
+	}
+	if err := beadsJSON(ctx, freshRoot, &afterConflict, "vc", "status"); err != nil || afterConflict != beforeConflict {
+		t.Fatalf("constraint failure changed local checkpoint: %+v, %v", afterConflict, err)
 	}
 }

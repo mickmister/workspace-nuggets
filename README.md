@@ -221,6 +221,16 @@ MCP exposes the same operation as `beads_restore`. Restoration preserves native
 history and records; it creates only local routing/configuration, with auto-push
 and source Git operations disabled. It does not initialize a new task database.
 
+For an already attached, quiesced workspace, use `nugs beads catch-up
+--dolt-commit HASH` (MCP `beads_catch_up`) with the remote publication's exact Dolt
+commit. Catch-up checkpoints local changes, independently validates the remote
+collection/revision, fetches through Beads' federation status interface, and
+invokes bare `bd vc merge` against the pinned hash. It never uses Beads' pull
+auto-resolver or a winner-selection strategy. A changed local checkpoint or
+unclean fetch stops the operation. Merge failures return local/remote checkpoint
+IDs for inspection; catch-up does not publish the result. Native row/schema/
+constraint errors are surfaced rather than repaired or resolved automatically.
+
 One Beads collection belongs to the **workspace**, including all its repositories.
 Run native `bd` commands from the workspace root. `nugs` discovers the outer
 workspace `.beads/redirect`, resolves it using `bd where`, and inspects the existing
