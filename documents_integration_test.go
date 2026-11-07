@@ -316,6 +316,7 @@ func TestFailedFetchRetainsIntent(t *testing.T) {
 
 func TestCLIAndStdioMCPOverHTTP(t *testing.T) {
 	g := newGitServer(t)
+	g.run(g.root, "", "git", "--git-dir", g.repo, "update-ref", "-d", "refs/heads/main")
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	binary := filepath.Join(t.TempDir(), "nugs")
@@ -360,7 +361,7 @@ func TestCLIAndStdioMCPOverHTTP(t *testing.T) {
 		t.Fatalf("MCP clients did not receive artifact workflow instructions: %q", instructions)
 	}
 	tools, err := session.ListTools(ctx, nil)
-	if err != nil || len(tools.Tools) != 7 {
+	if err != nil || len(tools.Tools) != 9 {
 		t.Fatalf("MCP tool discovery: %+v, %v", tools, err)
 	}
 	call := func(name string, args map[string]any) (*mcp.CallToolResult, Response) {
@@ -378,6 +379,14 @@ func TestCLIAndStdioMCPOverHTTP(t *testing.T) {
 			t.Fatalf("MCP structured response: %v", err)
 		}
 		return result, response
+	}
+	result, bootstrapped := call("storage_bootstrap", map[string]any{})
+	if result.IsError || bootstrapped.Storage == nil || !bootstrapped.Storage.Changed || bootstrapped.Ref != storageBootstrapRef {
+		t.Fatalf("MCP storage bootstrap: %+v", bootstrapped)
+	}
+	bootstrapCLI, err := cli("storage bootstrap", "")
+	if err != nil || bootstrapCLI.Storage == nil || bootstrapCLI.Storage.Changed || bootstrapCLI.Commit != bootstrapped.Commit {
+		t.Fatalf("CLI cannot observe MCP bootstrap: %+v, %v", bootstrapCLI, err)
 	}
 	_, listed := call("documents_list", map[string]any{"workspace": "cli-mcp"})
 	if len(listed.Resources) != 1 || listed.Resources[0].Name != "notes/review.md" {

@@ -32,16 +32,18 @@ type DocumentView struct {
 }
 
 type Response struct {
-	Workspace       string          `json:"workspace"`
-	Ref             string          `json:"ref"`
-	Resources       []Resource      `json:"resources,omitempty"`
-	Document        *DocumentView   `json:"document,omitempty"`
-	Receipt         *Receipt        `json:"receipt,omitempty"`
-	Error           *OperationError `json:"error,omitempty"`
-	Manifest        *Manifest       `json:"manifest,omitempty"`
-	ManifestVersion string          `json:"manifest_version,omitempty"`
-	Commit          string          `json:"commit,omitempty"`
-	Beads           *BeadsInfo      `json:"beads,omitempty"`
+	Workspace       string            `json:"workspace"`
+	Ref             string            `json:"ref"`
+	Resources       []Resource        `json:"resources,omitempty"`
+	Document        *DocumentView     `json:"document,omitempty"`
+	Receipt         *Receipt          `json:"receipt,omitempty"`
+	Error           *OperationError   `json:"error,omitempty"`
+	Manifest        *Manifest         `json:"manifest,omitempty"`
+	ManifestVersion string            `json:"manifest_version,omitempty"`
+	Commit          string            `json:"commit,omitempty"`
+	Beads           *BeadsInfo        `json:"beads,omitempty"`
+	Storage         *StorageReceipt   `json:"storage,omitempty"`
+	Publication     *BeadsPublication `json:"publication,omitempty"`
 }
 
 func ResourceURI(workspace, name string) string {
@@ -56,9 +58,18 @@ func (s Service) Execute(ctx context.Context, req Request) Response {
 	res := Response{Workspace: req.Workspace, Ref: store.Ref()}
 	var err error
 	switch req.Operation {
+	case "storage.bootstrap":
+		res.Storage, err = store.BootstrapStorage(ctx)
+		if res.Storage != nil {
+			res.Ref = res.Storage.Ref
+			res.Commit = res.Storage.Commit
+		}
 	case "beads.inspect":
 		res.Ref = "refs/dolt/" + req.Workspace
 		res.Beads, err = store.InspectBeads(ctx, req.Root)
+	case "beads.publish":
+		res.Ref = "refs/dolt/" + req.Workspace
+		res.Publication, err = store.PublishBeads(ctx, req.Root)
 	case "beads.configure":
 		res.Ref = "refs/dolt/" + req.Workspace
 		res.Beads, err = store.ConfigureBeads(ctx, req.Root)

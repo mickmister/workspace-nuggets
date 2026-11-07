@@ -180,6 +180,26 @@ Protocol stdout contains only MCP messages.
 
 ## Workspace-owned Beads
 
+For a new, explicitly selected **data repository**, run `nugs storage bootstrap`
+before its first native Beads push. The shared CLI/MCP operation creates an empty,
+deterministic root commit at `refs/heads/nugs-storage` only when no ordinary branch
+exists. Existing branches and custom document/Dolt refs are preserved. Repeated
+or raced bootstrap requests converge without a force push. MCP exposes the same
+operation as `storage_bootstrap`. This initializes storage only; it does not
+initialize a Beads database, push tasks, change source branches, or publish a
+workspace snapshot. Use it only with the selected workspace data repository.
+
+After configuring the workspace's native remote, `nugs beads publish` (MCP
+`beads_publish`) checkpoints pending changes through `bd dolt commit`, pushes
+without force, and independently clones the workspace's custom ref to verify the
+exact Dolt checkpoint. Its receipt contains the collection ID, branch, Git and
+Dolt commit IDs, and verification result, with no storage URL or credentials.
+Quiesce workers before a handoff: the setup lock does not exclude ordinary `bd`
+writes. A changed local/remote head during verification returns an error. A
+rejected push retains the local checkpoint and leaves remote reconciliation for
+an explicit next step. Publication does not pull or resolve conflicts, initialize
+a collection, enable auto-push, or bootstrap the storage repo implicitly.
+
 One Beads collection belongs to the **workspace**, including all its repositories.
 Run native `bd` commands from the workspace root. `nugs` discovers the outer
 workspace `.beads/redirect`, resolves it using `bd where`, and inspects the existing

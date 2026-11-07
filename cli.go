@@ -16,10 +16,12 @@ import (
 const usage = `Usage:
   nugs config set --remote URL [--cache DIR]
   nugs config show
+  nugs storage bootstrap
   nugs workspace inspect
   nugs workspace provision --root DIR --repo RELPATH [--repo RELPATH] [--expected VERSION]
   nugs beads inspect [--root DIR]
   nugs beads configure [--root DIR]
+  nugs beads publish [--root DIR]
   nugs documents list
   nugs documents read --name NAME
   nugs documents upsert --name NAME [--expected VERSION] [--file FILE|-]

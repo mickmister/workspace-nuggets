@@ -55,6 +55,12 @@ func TestWorkspaceBeadsNativeConfiguration(t *testing.T) {
 		}
 	}
 	g := newGitServer(t)
+	// Exercise product bootstrap, not a fixture's pre-seeded main branch.
+	g.run(g.root, "", "git", "--git-dir", g.repo, "update-ref", "-d", "refs/heads/main")
+	bootstrap, err := g.store("workspace-beads").BootstrapStorage(context.Background())
+	if err != nil || !bootstrap.Changed {
+		t.Fatalf("data repository bootstrap: %+v, %v", bootstrap, err)
+	}
 	ctx := context.Background()
 	persistent := filepath.Join(g.root, "persistent")
 	root := filepath.Join(g.root, "workspace")
@@ -145,8 +151,12 @@ func TestWorkspaceBeadsNativeConfiguration(t *testing.T) {
 		t.Fatal("concurrent setup was not serialized")
 	}
 	// Only this synthetic fixture is pushed. Verify bd itself honors the custom ref.
-	if out, err := runBeads(ctx, root, "dolt", "push", "--remote", "origin", "--json"); err != nil {
-		t.Fatalf("native fixture push: %v\n%s", err, out)
+	if _, err := runBeads(ctx, root, "update", issue.ID, "--description", "Uncommitted working-set change", "--dolt-auto-commit", "off"); err != nil {
+		t.Fatal(err)
+	}
+	publication, err := store.PublishBeads(ctx, root)
+	if err != nil || publication == nil || !publication.Verified || publication.CollectionID != info.CollectionID || publication.DoltCommit == beforeStatus["commit"] {
+		t.Fatalf("native fixture publication: %+v, %v", publication, err)
 	}
 	refs := g.run(g.root, "", "git", "ls-remote", g.url, "refs/dolt/*")
 	if !strings.Contains(refs, "refs/dolt/workspace-beads") || strings.Contains(refs, "refs/dolt/data") {
@@ -154,8 +164,39 @@ func TestWorkspaceBeadsNativeConfiguration(t *testing.T) {
 	}
 	clone := filepath.Join(g.root, "recovered")
 	g.run(g.root, "", "dolt", "clone", "--ref", info.DesiredRef, info.DesiredURL, clone)
-	rows := g.run(clone, "", "dolt", "sql", "-r", "csv", "-q", "SELECT id,title FROM issues")
-	if !strings.Contains(rows, issue.ID) || !strings.Contains(rows, "Synthetic workspace issue") {
+	rows := g.run(clone, "", "dolt", "sql", "-r", "csv", "-q", "SELECT id,title,description FROM issues")
+	if !strings.Contains(rows, issue.ID) || !strings.Contains(rows, "Synthetic workspace issue") || !strings.Contains(rows, "Uncommitted working-set change") {
 		t.Fatalf("native fixture recovery lost issue: %s", rows)
+	}
+	if _, err := runBeads(ctx, root, "config", "set", "no-push", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.PublishBeads(ctx, root); !errors.As(err, &failure) || failure.Code != "sync_disabled" {
+		t.Fatalf("disabled native push reported publication: %v", err)
+	}
+	if _, err := runBeads(ctx, root, "config", "set", "no-push", "false"); err != nil {
+		t.Fatal(err)
+	}
+	// A different writer publishes a new commit. A stale publisher must not
+	// overwrite it or silently pull/choose winners during publication.
+	g.run(clone, "", "dolt", "sql", "-q", "UPDATE issues SET title='Concurrent writer' WHERE id='"+issue.ID+"'")
+	g.run(clone, "", "dolt", "config", "--local", "--add", "user.name", "Nugs Fixture")
+	g.run(clone, "", "dolt", "config", "--local", "--add", "user.email", "fixture@example.invalid")
+	g.run(clone, "", "dolt", "add", ".")
+	g.run(clone, "", "dolt", "commit", "-m", "Concurrent fixture update")
+	g.run(clone, "", "dolt", "push", "origin", "main")
+	remoteBefore := g.run(g.root, "", "git", "ls-remote", g.url, info.DesiredRef)
+	if _, err := runBeads(ctx, root, "update", issue.ID, "--title", "Local checkpoint retained"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.PublishBeads(ctx, root); !errors.As(err, &failure) || failure.Code != "push_failed" {
+		t.Fatalf("stale publication did not stop: %v", err)
+	}
+	if remoteAfter := g.run(g.root, "", "git", "ls-remote", g.url, info.DesiredRef); remoteAfter != remoteBefore {
+		t.Fatal("stale publication changed concurrent remote")
+	}
+	local, err := runBeads(ctx, root, "show", issue.ID, "--json", "--readonly")
+	if err != nil || !strings.Contains(string(local), "Local checkpoint retained") {
+		t.Fatalf("failed publication lost local checkpoint: %s, %v", local, err)
 	}
 }

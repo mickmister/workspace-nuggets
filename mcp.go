@@ -49,6 +49,8 @@ func toolResponse(response Response) (*mcp.CallToolResult, Response, error) {
 func NewMCPServer(service Service) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "nugs", Version: "0.1.0"}, &mcp.ServerOptions{Instructions: agentArtifactInstructions})
 	for _, tool := range []struct{ name, operation, description string }{
+		{"storage_bootstrap", "storage.bootstrap", "Explicitly bootstrap the selected data repository with an empty ordinary branch for native Dolt; preserves all existing branches and custom refs"},
+		{"beads_publish", "beads.publish", "Checkpoint workspace Beads, push without force, and verify an independent native recovery; quiesce workers before handoff; divergence stops publication"},
 		{"workspace_inspect", "workspace.inspect", "Inspect a workspace manifest with repository branch pointers and document resources"},
 		{"documents_list", "documents.list", "Browse documents with versions and resource URIs"},
 	} {
