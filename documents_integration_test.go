@@ -449,4 +449,16 @@ func TestCLIAndStdioMCPOverHTTP(t *testing.T) {
 	if err != nil || inspectedCLI.ManifestVersion != provisionedMCP.Receipt.Version {
 		t.Fatalf("CLI cannot inspect MCP manifest: %+v, %v", inspectedCLI, err)
 	}
+	standalone, err := cli("workspace provision", "", "--purpose", "Plan repository-independent research", "--expected", inspectedCLI.ManifestVersion)
+	if err != nil || standalone.Manifest == nil || standalone.Manifest.Purpose != "Plan repository-independent research" || len(standalone.Manifest.Repositories) != 0 {
+		t.Fatalf("CLI standalone manifest: %+v, %v", standalone, err)
+	}
+	result, standaloneMCP := call("workspace_provision", map[string]any{"purpose": "Coordinate a research discussion", "expected_version": standalone.ManifestVersion})
+	if result.IsError || standaloneMCP.Manifest == nil || standaloneMCP.Manifest.Purpose != "Coordinate a research discussion" || len(standaloneMCP.Manifest.Repositories) != 0 {
+		t.Fatalf("MCP standalone manifest with omitted repositories/root: %+v", standaloneMCP)
+	}
+	result, invalidStandalone := call("workspace_provision", map[string]any{"purpose": " \t", "expected_version": standaloneMCP.ManifestVersion})
+	if !result.IsError || invalidStandalone.Error == nil {
+		t.Fatalf("MCP blank standalone purpose accepted: %+v", invalidStandalone)
+	}
 }

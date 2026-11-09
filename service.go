@@ -28,6 +28,7 @@ type Request struct {
 	Content            []byte
 	Root               string
 	Repositories       []string
+	Purpose            string
 	DataDir            string
 	CollectionID       string
 	DoltCommit         string
@@ -175,7 +176,7 @@ func (s Service) Execute(ctx context.Context, req Request) Response {
 		res.Resources, res.Manifest, res.ManifestVersion, res.Commit = snapshot.Resources, snapshot.Manifest, snapshot.ManifestVersion, snapshot.Commit
 	case "workspace.provision":
 		var receipt Receipt
-		res.Manifest, receipt, err = store.Provision(ctx, req.Root, req.Repositories, req.ExpectedVersion)
+		res.Manifest, receipt, err = store.ProvisionWithPurpose(ctx, req.Root, req.Repositories, req.Purpose, req.ExpectedVersion)
 		if err == nil {
 			res.Receipt, res.ManifestVersion, res.Commit = &receipt, receipt.Version, receipt.Commit
 		}

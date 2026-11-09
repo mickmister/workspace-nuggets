@@ -68,6 +68,9 @@ nugs config set --engagement my-engagement --remote https://example.com/private/
 nugs workspace init --root /path/to/workspace --workspace feature-123
 # Run ordinary commands from that root or any member repository.
 nugs workspace inspect
+
+# A planning/research workspace does not need source repositories or branches.
+nugs workspace provision --purpose "Explore requirements before selecting repositories"
 nugs documents list
 
 # Create only; reads exact bytes from a file, or stdin when --file is omitted.
@@ -177,16 +180,25 @@ nugs workspace provision --root /path/to/workspace \
 nugs workspace inspect
 ```
 
-Select every repository membership explicitly with repeated `--repo` flags.
+The manifest is required for workspace inspection. Repository membership data is
+optional; when there are no repositories, a nonblank `purpose` must explain why
+the workspace exists. Purpose may also be supplied for a repository-backed
+workspace. Existing schema-v1 repository manifests remain valid.
+
+Select any repository memberships explicitly with repeated `--repo` flags.
 Repository paths are relative to `--root`; absolute paths within that root also
 work. Provisioning observes the selected local repositories and writes the
-reserved `workspace/manifest.json` resource in the existing document ref. It
+reserved `workspace/manifest.json` resource in the existing document ref:
+`refs/documents/<workspace>` contains the Git path
+`documents/workspace/manifest.json`. It is shared workspace metadata, not a file
+in each source repository. It
 requires a committed HEAD in each selected repository. To refresh it, pass
 `--expected` with the `manifest_version` from inspection.
 
 The versioned manifest contains:
 
 - Workspace identity, schema version and observation timestamp.
+- Optional `purpose`; required when the repository list is omitted or empty.
 - All selected repository membership paths relative to the workspace root.
 - Each current full branch ref and exact commit OID, or explicit detached HEAD.
 - Working-tree dirty state and configured fetch remotes, with URL auth fields
@@ -194,13 +206,21 @@ The versioned manifest contains:
 - `publication: "unverified"` or `"no_remote"`; capturing a commit does not prove
   its branch/objects exist on another machine.
 
+Inspection returns `manifest_required` for a namespace without the manifest.
+Low-level document list/read/upsert remain available to bootstrap or repair such
+a namespace; merely having document or Dolt refs does not constitute a valid
+provisioned workspace. No purpose is inferred and existing remote data is not
+rewritten automatically. Directory attachment/setup and native storage recovery
+remain separate from provisioning shared workspace metadata.
+
 Inspection returns the parsed manifest and version from the same fetched commit
 as its document list. The manifest is schema-validated before publication,
 including after automatic reconciliation. Source observations are sequential,
 not an atomic multi-repository snapshot; HEAD/branch changes detected during an
 individual repository observation cause a retryable failure.
 
-This is a **branch-pointer manifest**, not a workspace restore or source-code
+Repository entries are **branch-pointer observations**. The manifest itself also
+supports standalone workspaces; it is not a workspace restore or source-code
 backup. Provisioning does not create/push source branches, upload Git bundles,
 copy uncommitted changes, configure source remotes, or initialize Beads. Base/PR
 relationships and verification that source commits are remotely fetchable remain
@@ -217,10 +237,11 @@ resolver; neither can bypass engagement boundaries. Available tools include:
 - `workspace_context`: `{}` — current stable identity without contacting storage.
 - `workspaces_list`: `{}` — registered identities in the attached engagement only.
 
-- `workspace_inspect`: `{ "workspace": "feature-123" }` — manifest, version and
-  current document view; manifest is absent for an unprovisioned workspace.
-- `workspace_provision`: `workspace`, explicit local `root`, `repositories` array,
-  and `expected_version` (empty for create only).
+- `workspace_inspect`: `{ "workspace": "feature-123" }` — required manifest,
+  version and current document view; unprovisioned namespaces return an error.
+- `workspace_provision`: optional `workspace`, `root`, `repositories`, `purpose`,
+  and `expected_version` (empty for create only). Supply a nonblank `purpose` if
+  `repositories` is omitted/empty; `root` is needed only to observe repositories.
 - `beads_inspect` / `beads_configure`: optional `workspace` and local workspace
   `root`; omitted root discovers the outer workspace redirect from server cwd.
 - `documents_list`: same input; returns resource URIs and versions.

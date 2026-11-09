@@ -23,7 +23,7 @@ const usage = `Usage:
   nugs workspace list
   nugs storage bootstrap
   nugs workspace inspect
-  nugs workspace provision --root DIR --repo RELPATH [--repo RELPATH] [--expected VERSION]
+  nugs workspace provision [--root DIR] [--repo RELPATH ...] [--purpose TEXT] [--expected VERSION]
   nugs beads inspect [--root DIR]
   nugs beads configure [--root DIR]
   nugs beads publish [--root DIR]
@@ -85,6 +85,7 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 	expected := flags.String("expected", "", "observed version; empty means create only")
 	file := flags.String("file", "-", "content file or - for stdin")
 	root := flags.String("root", ".", "workspace root for repository memberships")
+	purpose := flags.String("purpose", "", "why the workspace exists; required when no --repo is supplied")
 	dataDir := flags.String("data-dir", "", "new persistent collection directory for native restoration")
 	collectionID := flags.String("collection-id", "", "expected collection identity from a native publication receipt")
 	doltCommit := flags.String("dolt-commit", "", "expected native Dolt checkpoint from a publication receipt")
@@ -247,7 +248,7 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 		}
 		return 0
 	}
-	req := Request{Operation: operation, Workspace: *workspace, WorkspaceReference: *workspaceRef, Name: *name, ExpectedVersion: *expected, Root: *root, Repositories: repositories, DataDir: *dataDir, CollectionID: *collectionID, DoltCommit: *doltCommit}
+	req := Request{Operation: operation, Workspace: *workspace, WorkspaceReference: *workspaceRef, Name: *name, ExpectedVersion: *expected, Root: *root, Repositories: repositories, Purpose: *purpose, DataDir: *dataDir, CollectionID: *collectionID, DoltCommit: *doltCommit}
 	if operation == "documents.upsert" {
 		var err error
 		if *file == "-" {
