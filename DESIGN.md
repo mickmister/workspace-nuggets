@@ -2,20 +2,23 @@
 
 ## Confirmed direction
 
-The submitted form on `task-3vt.11` establishes:
+The submitted form on `task-3vt.11` establishes the initial direction, with later
+scope refinements noted below:
 
 - Product name **workspace nuggets**, executable shorthand **nugs**.
 - Standalone Go CLI and ergonomic stdio MCP server, sharing operations.
 - All implementation belongs in this repository, `../workspace-nuggets`, not the
   VD application. VD/VK is optional source integration, never the core schema.
-- Start with Beads, documents and the OpenCode adapter; source-neutral conversations
-  remain a first-class format.
-- Git first, with per-workspace refs for Dolt, documents and conversations; assets
-  have their own future namespace.
+- Start with Beads, documents and the OpenCode adapter. The later user clarification
+  tracked by `task-3vt.47` distinguishes normalized messages from raw native sessions;
+  both are first-class kinds alongside Beads, documents and OTel.
+- Git first, with implemented per-workspace Dolt/document refs and proposed separate
+  message/session refs. Built web assets are outside nugs storage/hosting scope.
 - Prefer native `dolt push/pull` for Beads, not JSONL replacement sync. Rclone is a
   candidate regular-file/S3 backend later; it is not a Git merge mechanism.
-- Leave OTel out of this slice. Its future default backend is S3, with configurable
-  content policy and enough evidence to debug/improve/validate.
+- OTel is a required separate kind, outside the implemented Git slice. Its backend,
+  content policy and retention remain undecided; the earlier S3 default was a
+  proposal, not a settled choice under the clarified taxonomy.
 - Consider per-kind backend selection and TTL cleanup later. A Docker/MinIO test
   was requested before the more specific Git-only direction; it is deferred rather
   than treated as an initial dependency.
@@ -23,6 +26,67 @@ The submitted form on `task-3vt.11` establishes:
 The earlier Go/S3 specs in the VD repository are historical planning inputs. The
 Git-first decisions here supersede their remote layout and publication assumptions.
 Do not retain a mandatory S3 catalog, Node runtime or VK schema in the Go core.
+
+## Typed nug boundaries and implementation plan
+
+The five in-scope kinds are:
+
+| Kind | Content boundary | Storage contract |
+| --- | --- | --- |
+| Beads | Native task graph and history | Implemented `refs/dolt/<workspace>` through native Dolt |
+| Documents | Authored forms, plans, decisions, research and reports | Implemented `refs/documents/<workspace>` |
+| Messages | Normalized back-and-forth user messages and agent responses | Proposed Git `refs/messages/<workspace>`; schema/API not implemented |
+| Sessions | Raw native agent session exports, including source-specific parts | Proposed Git `refs/sessions/<workspace>`; schema/API not implemented |
+| OTel | Agent/workload telemetry with signal identity and observation coverage | Required separate kind; backend, namespace and policy unresolved |
+
+Kind is determined by purpose, not JSON/text encoding. A report about a session is
+a document; the native export itself is a session; its normalized user/agent
+exchanges are messages. Tool-call telemetry is OTel when captured as signals;
+native tool parts also remain in the raw session without implying OTel coverage.
+Built web payloads (including Storybook bundles) belong to external hosting such
+as GitHub Pages. Documents can retain hosting links and build provenance, not the
+hosted payload. A separate CI dependency/compiler-cache proposal does not expand
+these nug kinds or authorize asset hosting.
+
+### Schema and adapter requirements
+
+- Bind each resource to the existing stable workspace identity. Storage handles
+  select namespaces; source branch changes must not retarget them.
+- Version messages and sessions independently, with source producer/version,
+  source session/message IDs, observation time and explicit coverage. Link a
+  normalized message revision to its source session revision; timestamps or equal
+  text alone must not merge distinct messages, retries or session branches.
+- Preserve imported native session bytes and unknown parts under the selected
+  content policy. If sanitization transforms bytes, record that transformation
+  and coverage rather than claiming a byte-identical source export.
+- Re-importing the same source revision must be idempotent. Divergent revisions
+  must preserve both intent and provenance and expose conflicts. Shared Go
+  CLI/MCP operations need version-checked writes and per-kind outcome receipts;
+  no cross-ref atomic publication is implied.
+- Decide OTel backend/transport, signal/content capture and retention before its
+  storage implementation. Do not infer that Git or S3 is selected by the existence
+  of other kinds. Preserve native signal identity, late data and coverage gaps.
+
+### Delivery and legacy migration
+
+1. Extend the versioned schemas and independent reader contracts (`task-3vt.3`,
+   `task-3vt.6`) for distinct messages, sessions and OTel.
+2. Implement typed message/session operations and the explicit OpenCode export
+   adapter (`task-3vt.16`), verifying raw-byte fidelity, normalized-source links,
+   repeated-message identity, partial sources and CLI/MCP parity.
+3. Migrate existing document-stored native exports only through the explicit
+   operation tracked by `task-3vt.16.1`: inventory source URI/version, hash and links;
+   publish typed targets; read back and verify bytes/provenance; record a mapping
+   receipt; update consumers to pinned typed revisions. Interrupted/repeated runs
+   must resume without duplicate ingestion. Preserve legacy documents and links
+   until verification and any separate removal/retention decision. No automatic
+   migration during attach, init or ordinary reads.
+4. Resolve OTel decisions in `task-3vt.14` and per-kind retention in `task-3vt.22`.
+   No cleanup starts merely because a resource can be classified.
+
+The earlier `refs/conversations/<workspace>` and `refs/assets/<workspace>` were
+design proposals, not implemented namespaces to rename or delete. Existing native
+exports under document paths remain valid historical evidence during this work.
 
 ## Local transport evidence
 
@@ -109,7 +173,7 @@ Common operations should expose explicit workspace identity, kind, ref and versi
   resource identities and actionable version/conflict receipts for agents.
 - Document list/read/upsert with the expected prior version, immutable commits,
   useful diff/review context and a new-version receipt.
-- Conversation import/list/read with an initial OpenCode exporter adapter.
+- Planned message/session import/list/read with an initial OpenCode exporter adapter.
 - Beads inspect/sync through native capabilities, with status/conflict receipts.
 - Fetch/reconcile/push with bounded retry and per-kind outcome; a partial publish
   is not reported as atomic success across all custom refs.
@@ -147,17 +211,17 @@ An agent can inspect that conflict through CLI/MCP. Automatic synchronization st
 at real conflicts; resolution and subsequent publication are explicit operations.
 The tool does not invoke an agent to choose conflicting content or publish a winner.
 Git non-fast-forward rejection is not permission to rewrite remote history.
-OpenCode conversation identity should prevent duplicate ingestion while preserving
-legitimate repeated prompts, branches/retries and corrections.
+OpenCode source session/message identity should prevent duplicate ingestion while
+preserving legitimate repeated prompts, branches/retries and corrections.
 
 ## Accepted Git confidentiality
 
 The same response selects `private_git_v1`: authenticated private Git access
-controls are sufficient for v1 Beads, documents and conversations. This explicitly
-supersedes the earlier generated-key client-side encryption requirement for these
+controls are sufficient for v1 Beads, documents and Git-backed messages/sessions.
+This explicitly supersedes the earlier generated-key client-side encryption requirement for these
 Git-backed components. Repository readers can read their content/history; custom
 refs are organizational namespaces, not separate confidentiality boundaries.
-Future S3/OTel confidentiality remains a separate backend decision.
+OTel and any future S3 backend confidentiality remain separate decisions.
 
 The user also permits code/file changes and emphasizes ergonomic workspace-scoped
 CLI/MCP resource browsing, including upserts. These two policy decisions no longer
@@ -172,6 +236,7 @@ cleanup command/cron; no background deletion is enabled by this experiment.
 
 ## Deferred experiments
 
-MinIO in Docker, rclone S3 round trips, OTel capture/query, assets/large-object
-retention, selectable per-kind backends and automated TTL cleanup are separate
-tracked work. Validate the small Git-first slice and conflict semantics first.
+MinIO in Docker, rclone S3 round trips, OTel capture/query, selectable per-kind
+backends and automated TTL cleanup are separate tracked work. Built web asset
+storage/hosting is excluded, rather than deferred. Validate the typed Git slice
+and conflict semantics before adding backends.

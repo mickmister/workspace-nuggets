@@ -4,19 +4,31 @@ A standalone Go CLI and MCP server for workspace-scoped agent context.
 
 ## Current first slice
 
-Git-only storage, initially for **Beads, documents, and an OpenCode adapter**.
+The implemented storage slice is Git-backed **Beads and documents**.
 The CLI and stdio MCP server now share Go operations for workspace document
 browsing, reading and version-checked upserts. Workspace-owned Beads native remote
 configuration and inspection are also available. Existing `bd` operations own task
-editing and database sync; the OpenCode conversation adapter remains next.
+editing; nugs provides native checkpoint, sync and recovery operations. Typed
+message/session storage and the OpenCode adapter remain planned work.
 
-| Kind | Remote ref | Transport |
+| Kind | Storage | Status and purpose |
 | --- | --- | --- |
-| Beads | `refs/dolt/<workspace>` | Native Dolt Git remote, configured with `--ref` |
-| Documents | `refs/documents/<workspace>` | Git objects/commits |
-| Conversations | `refs/conversations/<workspace>` | Agent-neutral records; OpenCode export adapter first |
-| Built assets (later) | `refs/assets/<workspace>` | Separate artifact storage policy |
-| OTel (later) | Not part of Git-first work | Proposed default S3; user-configurable |
+| Beads | `refs/dolt/<workspace>` | Implemented: native task graph through Dolt Git transport |
+| Documents | `refs/documents/<workspace>` | Implemented: authored forms, plans, decisions and reports as Git blobs/commits |
+| Messages | Proposed `refs/messages/<workspace>` | Planned: normalized user messages and agent responses, independent of producer format |
+| Sessions | Proposed `refs/sessions/<workspace>` | Planned: raw agent-native session exports, preserving source structure |
+| OTel | Backend/namespace undecided | Required separate type; capture, content policy and retention remain design work |
+
+Messages and sessions are separate first-class kinds, not document subdirectories.
+The proposed refs replace the earlier design-only conversation namespace; they
+are not available CLI/MCP APIs yet. Current CI workflows have saved native session
+exports through the document API. Those are legacy records to preserve until an
+explicit migration verifies bytes, provenance and links; setup does not move them.
+
+Built web assets such as Storybook bundles are outside nugs storage/hosting scope.
+Use external hosting such as GitHub Pages; a document may record its URL, source
+commit and build provenance. CI dependency/compiler caching is a separate proposal,
+not a nug type or a reason to store web bundles in these refs.
 
 Example workspace ref suffix: `feature-123`. Validate suffixes and carry stable
 workspace/repository provenance; a bare branch name does not identify an entire
@@ -509,9 +521,12 @@ Use the supported `opencode export <session-id>` interface, optionally consuming
 an already exported file. Require an explicit session; do not scrape its private
 SQLite schema or use an interactive "latest session" picker. The inspected export
 shape is `{ info, messages: [{ info, parts }] }`. Preserve native IDs/order and
-unknown parts as provenance alongside normalized prompts/responses, and label
+unknown parts in the raw session kind; normalized prompts/responses belong to the
+message kind with links back to that source session. Label
 truncated/incomplete sources honestly. Export sanitization is an explicit content
 policy, not a claim that every native exporter has already redacted data.
+This is a planned adapter contract, not an implemented import command. See the
+typed-kind and migration requirements in [DESIGN.md](DESIGN.md).
 
 ## Decisions and outstanding questions
 
