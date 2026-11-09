@@ -29,7 +29,8 @@ func TestWorkspaceManifestOverHTTP(t *testing.T) {
 	store := g.store("manifest-workspace")
 	ctx := context.Background()
 	before, err := store.Inspect(ctx)
-	if err != nil || before.Manifest != nil {
+	var missing *OperationError
+	if !errors.As(err, &missing) || missing.Code != "manifest_required" || before.Manifest != nil {
 		t.Fatalf("unprovisioned inspection: %+v, %v", before, err)
 	}
 	manifest, receipt, err := store.Provision(ctx, g.root, []string{"beta", "alpha"}, "")
@@ -80,5 +81,39 @@ func TestWorkspaceManifestOverHTTP(t *testing.T) {
 	}
 	if _, err := store.ObserveManifest(ctx, a, []string{b}); err == nil {
 		t.Fatal("repository outside workspace accepted")
+	}
+}
+
+func TestStandaloneWorkspaceManifestOverHTTP(t *testing.T) {
+	g := newGitServer(t)
+	ctx := context.Background()
+	store := g.store("standalone")
+	// Raw resources remain readable for explicit repair; a bare document ref
+	// without its required manifest is not a provisioned workspace.
+	if _, err := store.Upsert(ctx, "notes/design.md", "", []byte("early research")); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.Inspect(ctx)
+	var failure *OperationError
+	if !errors.As(err, &failure) || failure.Code != "manifest_required" || len(snapshot.Resources) != 1 {
+		t.Fatalf("manifest-free ref accepted as workspace: %+v, %v", snapshot, err)
+	}
+	manifest, receipt, err := store.ProvisionWithPurpose(ctx, "/no/source/root/required", nil, "  Explore product requirements before selecting code repositories  ", "")
+	if err != nil || len(manifest.Repositories) != 0 || manifest.Purpose != "Explore product requirements before selecting code repositories" {
+		t.Fatalf("standalone provisioning: %+v, %v", manifest, err)
+	}
+	doc, err := store.Read(ctx, ManifestDocument)
+	if err != nil || strings.Contains(string(doc.Content), `"repositories"`) {
+		t.Fatalf("repository metadata should be omitted: %s, %v", doc.Content, err)
+	}
+	snapshot, err = store.Inspect(ctx)
+	if err != nil || snapshot.ManifestVersion != receipt.Version || snapshot.Manifest.Purpose != manifest.Purpose {
+		t.Fatalf("standalone inspection: %+v, %v", snapshot, err)
+	}
+	if _, err := store.Upsert(ctx, ManifestDocument, receipt.Version, []byte(`{"schema_version":1,"workspace":"standalone","observed_at":"2026-11-09T00:00:00Z"}`)); !errors.As(err, &failure) || failure.Code != "invalid_manifest" {
+		t.Fatalf("standalone manifest without purpose accepted: %v", err)
+	}
+	if _, _, err := store.ProvisionWithPurpose(ctx, "", nil, "", receipt.Version); err == nil {
+		t.Fatal("empty purpose provision accepted")
 	}
 }

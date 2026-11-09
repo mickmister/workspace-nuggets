@@ -32,8 +32,9 @@ type beadsInput struct {
 type provisionInput struct {
 	WorkspaceReference string   `json:"workspace_ref,omitempty"`
 	Workspace          string   `json:"workspace,omitempty"`
-	Root               string   `json:"root" jsonschema:"Explicit local workspace root on the server"`
-	Repositories       []string `json:"repositories" jsonschema:"Explicit local repository paths relative to root; include every membership"`
+	Root               string   `json:"root,omitempty" jsonschema:"Local workspace root on the server; needed for repository observations"`
+	Repositories       []string `json:"repositories,omitempty" jsonschema:"Explicit local repository paths relative to root; optional when purpose is supplied"`
+	Purpose            string   `json:"purpose,omitempty" jsonschema:"Why this workspace exists; nonblank purpose required without repositories"`
 	ExpectedVersion    string   `json:"expected_version" jsonschema:"Observed manifest version; empty for create only"`
 }
 
@@ -90,8 +91,8 @@ func NewMCPServer(service Service) *mcp.Server {
 			return toolResponse(service.Execute(ctx, Request{Operation: tool.operation, Workspace: in.Workspace, WorkspaceReference: in.WorkspaceReference, Root: in.Root}))
 		})
 	}
-	mcp.AddTool(server, &mcp.Tool{Name: "workspace_provision", Description: "Observe explicitly selected local repository branches and publish a version-checked workspace manifest; does not push source code"}, func(ctx context.Context, _ *mcp.CallToolRequest, in provisionInput) (*mcp.CallToolResult, Response, error) {
-		return toolResponse(service.Execute(ctx, Request{Operation: "workspace.provision", Workspace: in.Workspace, WorkspaceReference: in.WorkspaceReference, Root: in.Root, Repositories: in.Repositories, ExpectedVersion: in.ExpectedVersion}))
+	mcp.AddTool(server, &mcp.Tool{Name: "workspace_provision", Description: "Publish the required version-checked workspace manifest with optional repository observations; require purpose for a standalone workspace; does not push source code"}, func(ctx context.Context, _ *mcp.CallToolRequest, in provisionInput) (*mcp.CallToolResult, Response, error) {
+		return toolResponse(service.Execute(ctx, Request{Operation: "workspace.provision", Workspace: in.Workspace, WorkspaceReference: in.WorkspaceReference, Root: in.Root, Repositories: in.Repositories, Purpose: in.Purpose, ExpectedVersion: in.ExpectedVersion}))
 	})
 	mcp.AddTool(server, &mcp.Tool{Name: "beads_restore", Description: "Restore an exact native checkpoint and collection identity into a fresh workspace; refuses existing markers and data directories"}, func(ctx context.Context, _ *mcp.CallToolRequest, in restoreInput) (*mcp.CallToolResult, Response, error) {
 		return toolResponse(service.Execute(ctx, Request{Operation: "beads.restore", Workspace: in.Workspace, WorkspaceReference: in.WorkspaceReference, Root: in.Root, DataDir: in.DataDir, CollectionID: in.CollectionID, DoltCommit: in.DoltCommit}))

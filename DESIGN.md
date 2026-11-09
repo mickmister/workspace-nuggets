@@ -147,7 +147,14 @@ and other kinds remain subsequent schema/adapter work.
 selected local repository roots and publishes schema-v1 `workspace/manifest.json`
 through the document backend. It captures portable membership paths, branch refs,
 commit OIDs, dirty/detached state, sanitized fetch remotes and explicit unverified/
-missing publication status. `workspace inspect` reads this manifest and documents
+missing publication status. Repository entries are optional: standalone planning,
+research or coordination workspaces instead require a nonblank `purpose` stating
+why the workspace exists. Existing repository-backed schema-v1 manifests remain
+valid. The required manifest is stored in `refs/documents/<workspace>` at Git path
+`documents/workspace/manifest.json`. `workspace inspect` reports `manifest_required`
+for incomplete namespaces; low-level document access remains available for
+bootstrap/repair without silently creating metadata or assigning a purpose.
+`workspace inspect` reads this manifest and documents
 from one fetched snapshot. Reserved manifest contents are validated before each
 push, including clean reconciliations. Source repositories are only observed;
 there is no source push, Git-object upload, checkout or restore. PR/base-ref

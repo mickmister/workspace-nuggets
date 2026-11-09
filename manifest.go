@@ -35,7 +35,8 @@ type Manifest struct {
 	SchemaVersion int                 `json:"schema_version"`
 	Workspace     string              `json:"workspace"`
 	ObservedAt    string              `json:"observed_at"`
-	Repositories  []RepositoryPointer `json:"repositories"`
+	Purpose       string              `json:"purpose,omitempty"`
+	Repositories  []RepositoryPointer `json:"repositories,omitempty"`
 }
 
 type WorkspaceSnapshot struct {
@@ -53,8 +54,11 @@ func parseManifest(content []byte, workspace string) (*Manifest, error) {
 	if err := json.Unmarshal(content, &manifest); err != nil {
 		return bad("workspace manifest must be valid JSON: " + err.Error())
 	}
-	if manifest.SchemaVersion != 1 || manifest.Workspace != workspace || len(manifest.Repositories) == 0 {
-		return bad("manifest needs schema_version 1, matching workspace and at least one repository")
+	if manifest.SchemaVersion != 1 || manifest.Workspace != workspace {
+		return bad("manifest needs schema_version 1 and matching workspace")
+	}
+	if len(manifest.Repositories) == 0 && strings.TrimSpace(manifest.Purpose) == "" {
+		return bad("manifest needs a nonblank purpose explaining why a workspace without repositories exists")
 	}
 	if _, err := time.Parse(time.RFC3339Nano, manifest.ObservedAt); err != nil {
 		return bad("manifest observed_at must be an RFC3339 timestamp")
@@ -109,14 +113,25 @@ func portableRemote(raw string) string {
 // ObserveManifest reads only explicitly selected local repositories. It does not
 // checkout branches, push source code, or assume a local commit is published.
 func (s Store) ObserveManifest(ctx context.Context, root string, repositories []string) (*Manifest, error) {
-	if len(repositories) == 0 {
-		return nil, invalid("select at least one repository with --repo")
+	return s.ObserveManifestWithPurpose(ctx, root, repositories, "")
+}
+
+// ObserveManifestWithPurpose supports standalone research/planning workspaces;
+// source pointers remain explicit observations when repositories are supplied.
+func (s Store) ObserveManifestWithPurpose(ctx context.Context, root string, repositories []string, purpose string) (*Manifest, error) {
+	if len(repositories) == 0 && strings.TrimSpace(purpose) == "" {
+		return nil, invalid("supply --repo or a nonblank --purpose explaining why this workspace exists")
 	}
 	t, err := s.begin(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer os.RemoveAll(t.dir)
+	manifest := &Manifest{SchemaVersion: 1, Workspace: s.Workspace, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano), Purpose: strings.TrimSpace(purpose)}
+	if len(repositories) == 0 {
+		// No Git repository, branch, or even local source root is required.
+		return manifest, nil
+	}
 	root, err = filepath.Abs(root)
 	if err != nil {
 		return nil, err
@@ -125,7 +140,6 @@ func (s Store) ObserveManifest(ctx context.Context, root string, repositories []
 	if err != nil {
 		return nil, err
 	}
-	manifest := &Manifest{SchemaVersion: 1, Workspace: s.Workspace, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 	for _, repoPath := range repositories {
 		if !filepath.IsAbs(repoPath) {
 			repoPath = filepath.Join(root, repoPath)
@@ -197,7 +211,11 @@ func (s Store) ObserveManifest(ctx context.Context, root string, repositories []
 }
 
 func (s Store) Provision(ctx context.Context, root string, repositories []string, expected string) (*Manifest, Receipt, error) {
-	manifest, err := s.ObserveManifest(ctx, root, repositories)
+	return s.ProvisionWithPurpose(ctx, root, repositories, "", expected)
+}
+
+func (s Store) ProvisionWithPurpose(ctx context.Context, root string, repositories []string, purpose, expected string) (*Manifest, Receipt, error) {
+	manifest, err := s.ObserveManifestWithPurpose(ctx, root, repositories, purpose)
 	if err != nil {
 		return nil, Receipt{}, err
 	}
@@ -231,7 +249,7 @@ func (s Store) Inspect(ctx context.Context) (WorkspaceSnapshot, error) {
 	if err != nil {
 		var operationError *OperationError
 		if errors.As(err, &operationError) && operationError.Code == "not_found" {
-			return snapshot, nil
+			return snapshot, &OperationError{Code: "manifest_required", Message: "workspace/manifest.json is required; provision the workspace with repositories or a purpose"}
 		}
 		return snapshot, err
 	}
