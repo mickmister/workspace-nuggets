@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -167,6 +168,53 @@ func TestBeadsSharedLocalWriters(t *testing.T) {
 				}
 			}
 			if mode == "nugs" {
+				for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusServiceUnavailable, http.StatusTeapot} {
+					t.Run(http.StatusText(status), func(t *testing.T) {
+						if _, err := native(root, "update", ids[0], "--description", fmt.Sprintf("Pending publication during HTTP %d", status), "--dolt-auto-commit", "on"); err != nil {
+							t.Fatal(err)
+						}
+						var before beadsVersion
+						if err := beadsJSON(ctx, root, &before, "vc", "status"); err != nil {
+							t.Fatal(err)
+						}
+						remoteBefore := g.run(g.root, "", "git", "--git-dir", g.repo, "rev-parse", info.DesiredRef)
+						g.mu.Lock()
+						g.responseStatus = status
+						g.mu.Unlock()
+						_, nativeErr := native(root, "dolt", "push", "--remote", "origin")
+						t.Logf("native HTTP %d failure: %v", status, nativeErr)
+						response := (Service{Remote: store.Remote, CacheDir: store.CacheDir}).Execute(ctx, Request{Operation: "beads.sync", Workspace: store.Workspace, Root: root})
+						g.mu.Lock()
+						g.responseStatus = 0
+						g.mu.Unlock()
+						want := "authentication_failed"
+						if status == http.StatusServiceUnavailable {
+							want = "remote_unavailable"
+						} else if status == http.StatusTeapot {
+							want = "push_failed"
+						}
+						if nativeErr == nil || response.Error == nil || response.Error.Code != want {
+							t.Fatalf("unclassified native failure: error=%+v, native=%v", response.Error, nativeErr)
+						}
+						if response.Publication == nil || response.Publication.DoltCommit == "" || response.Publication.Verified || response.Publication.PushAcknowledged || response.Handoff != nil {
+							t.Fatalf("failed push lost or overstated checkpoint: %+v", response.Publication)
+						}
+						if response.Synchronization == nil || response.Synchronization.Attempts != 1 || len(response.Synchronization.Merges) != 0 {
+							t.Fatalf("transport failure entered divergence recovery: %+v", response.Synchronization)
+						}
+						var after beadsVersion
+						if err := beadsJSON(ctx, root, &after, "vc", "status"); err != nil || after != before || response.Publication.DoltCommit != before.Commit {
+							t.Fatalf("failed transport changed local checkpoint: before=%+v after=%+v, %v", before, after, err)
+						}
+						if remoteAfter := g.run(g.root, "", "git", "--git-dir", g.repo, "rev-parse", info.DesiredRef); remoteAfter != remoteBefore {
+							t.Fatal("failed transport changed remote history")
+						}
+						retried, err := store.SyncBeads(ctx, root)
+						if err != nil || retried.Publication == nil || !retried.Publication.Verified || retried.Publication.DoltCommit != before.Commit {
+							t.Fatalf("retry after transport recovery did not verify original checkpoint: %+v, %v", retried, err)
+						}
+					})
+				}
 				t.Run("post-push outage retains checkpoint", func(t *testing.T) {
 					if _, err := native(root, "update", ids[0], "--description", "Published before verification outage", "--dolt-auto-commit", "on"); err != nil {
 						t.Fatal(err)

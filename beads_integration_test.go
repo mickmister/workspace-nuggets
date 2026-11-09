@@ -453,8 +453,10 @@ func TestWorkspaceBeadsNativeConfiguration(t *testing.T) {
 	if _, err := runBeads(ctx, root, "update", issue.ID, "--title", "Local checkpoint retained"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.PublishBeads(ctx, root); !errors.As(err, &failure) || failure.Code != "push_failed" {
+	if _, err := store.PublishBeads(ctx, root); !errors.As(err, &failure) || failure.Code != "push_diverged" {
 		t.Fatalf("stale publication did not stop: %v", err)
+	} else {
+		t.Logf("native divergence failure: %v", err)
 	}
 	if remoteAfter := g.run(g.root, "", "git", "ls-remote", g.url, info.DesiredRef); remoteAfter != remoteBefore {
 		t.Fatal("stale publication changed concurrent remote")

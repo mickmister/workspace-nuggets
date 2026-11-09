@@ -48,6 +48,33 @@ can verify the already-published checkpoint without repeating agent work. This
 is partial-progress reporting, not a persisted operation journal or a guarantee
 of a final upload after process death.
 
+## Native push failure policy
+
+Only a confirmed native non-fast-forward rejection (`push_diverged`) authorizes
+`beads.sync` to fetch and attempt native clean reconciliation. Other failed
+pushes stop after one publication attempt and retain the captured checkpoint:
+
+| Error code | Meaning | Next action |
+| --- | --- | --- |
+| `authentication_failed` | Recognized missing/rejected credentials or HTTP 401/403 access denial | Correct access, then retry |
+| `remote_unavailable` | Recognized HTTP 5xx, connection/DNS failure or disconnected transfer | Retry when transport recovers; publication may be uncertain |
+| `timeout` / `canceled` | Native command deadline or caller cancellation | Inspect retained checkpoint, then retry when appropriate |
+| `push_failed` | Unknown failure, including other rejections | Inspect the native diagnostic; no automatic merge |
+
+The pinned Beads push command exposes textual native diagnostics. Classification
+recognizes specific diagnostics and ignores `hint:` advice: Beads appends
+credential hints even to HTTP 503 errors. Unrecognized/new diagnostic formats
+fall back to `push_failed`, never permission to reconcile. This policy does not
+claim every provider error has been classified, or that a transport failure proves
+the checkpoint is absent remotely. Partial publication and acknowledgement
+semantics above still apply.
+
+The shared-local native fixtures exercise real HTTP 401/403/503 failures plus an
+unrecognized HTTP failure. They verify unchanged local/remote history, no merge
+attempt, retained checkpoint and successful retry after recovery. Existing native
+peer tests verify non-fast-forward clean reconciliation and refusal of real row
+conflicts/constraint violations.
+
 ## Document baseline
 
 Documents use isolated Git transactions and per-resource expected blob versions.
@@ -66,7 +93,7 @@ reconciled against remote ancestry without creating a duplicate commit.
 go test ./... -run 'TestDocumentsConcurrentWriters|TestDocumentLostPushAcknowledgement|TestDocumentTransportFailureRetainsIntent|TestDocumentReconciliationOverHTTP'
 ```
 
-Current error codes still group some authentication/outage failures by operation
-phase. Broader classification, continuous-writer stress, abrupt-process loss and
+Document transport errors still use operation-phase codes. Classification at
+other phases/backends, continuous-writer stress, abrupt-process loss and
 interrupted restore remain reliability work. No cross-kind atomicity or global
 writer pause is implied by these tests.

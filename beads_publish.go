@@ -53,7 +53,7 @@ func (s Store) PublishBeads(ctx context.Context, root string) (*BeadsPublication
 	if _, err := runBeads(ctx, info.WorkspaceRoot, "dolt", "push", "--remote", "origin"); err != nil {
 		message := strings.ReplaceAll(err.Error(), info.DesiredURL, "<storage>")
 		message = strings.ReplaceAll(message, s.Remote, "<storage>")
-		return publication, &OperationError{Code: "push_failed", Message: "native push failed; local checkpoint retained: " + message}
+		return publication, &OperationError{Code: classifyBeadsPushError(err), Message: "native push failed; local checkpoint retained: " + message}
 	}
 	publication.PushAcknowledged = true
 	t, err := s.begin(ctx)

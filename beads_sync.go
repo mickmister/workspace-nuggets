@@ -29,7 +29,7 @@ func (s Store) SyncBeads(ctx context.Context, root string) (*BeadsSynchronizatio
 			return result, nil
 		}
 		var failure *OperationError
-		if !errors.As(err, &failure) || failure.Code != "push_failed" || attempt == 3 {
+		if !errors.As(err, &failure) || failure.Code != "push_diverged" || attempt == 3 {
 			return result, err
 		}
 		info, err := s.InspectBeads(ctx, root)
