@@ -22,8 +22,10 @@ func (s Store) SyncBeads(ctx context.Context, root string) (*BeadsSynchronizatio
 	for attempt := 1; ; attempt++ {
 		result.Attempts = attempt
 		published, err := s.PublishBeads(ctx, root)
-		if err == nil {
+		if published != nil {
 			result.Publication = published
+		}
+		if err == nil {
 			return result, nil
 		}
 		var failure *OperationError

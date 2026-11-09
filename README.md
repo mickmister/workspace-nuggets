@@ -38,6 +38,8 @@ Git host, not assumed from this local transport experiment.
 
 Automatic sync reconciles clean native merges only, returns real conflicts,
 and uses private Git access controls for v1.
+See [Concurrent writes and publication recovery](CONCURRENCY.md) for the native
+shared-collection baseline, partial receipts, test commands and remaining limits.
 
 ## Use the document CLI
 

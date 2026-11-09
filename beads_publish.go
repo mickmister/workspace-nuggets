@@ -16,7 +16,10 @@ type BeadsPublication struct {
 	GitCommit    string `json:"git_commit"`
 	DoltCommit   string `json:"dolt_commit"`
 	Branch       string `json:"branch"`
-	Verified     bool   `json:"verified"`
+	// Acknowledgement is not independent verification. False can also mean
+	// an acknowledgement was lost; it is not proof that the push did not land.
+	PushAcknowledged bool `json:"push_acknowledged"`
+	Verified         bool `json:"verified"`
 }
 
 type beadsVersion struct {
@@ -46,17 +49,24 @@ func (s Store) PublishBeads(ctx context.Context, root string) (*BeadsPublication
 	if version.Commit == "" || version.Branch == "" {
 		return nil, fmt.Errorf("Beads did not identify the checkpoint commit and branch")
 	}
+	publication := &BeadsPublication{CollectionID: info.CollectionID, Ref: info.DesiredRef, DoltCommit: version.Commit, Branch: version.Branch}
 	if _, err := runBeads(ctx, info.WorkspaceRoot, "dolt", "push", "--remote", "origin"); err != nil {
 		message := strings.ReplaceAll(err.Error(), info.DesiredURL, "<storage>")
 		message = strings.ReplaceAll(message, s.Remote, "<storage>")
-		return nil, &OperationError{Code: "push_failed", Message: "native push failed; local checkpoint retained: " + message}
+		return publication, &OperationError{Code: "push_failed", Message: "native push failed; local checkpoint retained: " + message}
 	}
+	publication.PushAcknowledged = true
 	t, err := s.begin(ctx)
 	if err != nil {
-		return nil, err
+		return publication, err
 	}
 	defer os.RemoveAll(t.dir)
-	return s.verifyBeadsPublication(ctx, t, info, version)
+	verified, err := s.verifyBeadsPublication(ctx, t, info, version)
+	if err != nil {
+		return publication, err
+	}
+	verified.PushAcknowledged = true
+	return verified, nil
 }
 
 func (s Store) verifyBeadsPublication(ctx context.Context, t *transaction, info *BeadsInfo, version beadsVersion) (*BeadsPublication, error) {

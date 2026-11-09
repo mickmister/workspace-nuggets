@@ -23,11 +23,14 @@ import (
 
 type gitServer struct {
 	*rig
-	url        string
-	repo       string
-	mu         sync.Mutex
-	beforePush func()
-	buildEnv   []string
+	url              string
+	repo             string
+	mu               sync.Mutex
+	beforePush       func()
+	failureMarker    string
+	dropPushResponse bool
+	responseStatus   int
+	buildEnv         []string
 }
 
 func newGitServer(t *testing.T) *gitServer {
@@ -51,20 +54,141 @@ func newGitServer(t *testing.T) *gitServer {
 		}
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		g.mu.Lock()
+		status := g.responseStatus
+		marker := g.failureMarker
+		g.mu.Unlock()
+		if marker != "" {
+			if _, err := os.Stat(marker); err == nil {
+				status = http.StatusServiceUnavailable
+			}
+		}
+		if status != 0 {
+			if status == http.StatusUnauthorized {
+				w.Header().Set("WWW-Authenticate", `Basic realm="fixture"`)
+			}
+			http.Error(w, "disposable transport failure", status)
+			return
+		}
 		if req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/git-receive-pack") {
 			g.mu.Lock()
 			before := g.beforePush
 			g.beforePush = nil
+			drop := g.dropPushResponse
+			g.dropPushResponse = false
 			g.mu.Unlock()
 			if before != nil {
 				before()
 			}
+			if drop {
+				// Execute receive-pack completely, then lose its acknowledgement.
+				// This is a real accepted Git push, not a synthetic client error.
+				recorder := httptest.NewRecorder()
+				cgiHandler.ServeHTTP(recorder, req)
+				connection, _, err := w.(http.Hijacker).Hijack()
+				if err != nil {
+					t.Errorf("drop push acknowledgement: %v", err)
+					return
+				}
+				connection.Close()
+				return
+			}
+			cgiHandler.ServeHTTP(w, req)
+			return
 		}
 		cgiHandler.ServeHTTP(w, req)
 	}))
 	t.Cleanup(server.Close)
 	g.url = server.URL + "/remote.git"
 	return g
+}
+
+func TestDocumentsConcurrentWriters(t *testing.T) {
+	g := newGitServer(t)
+	ctx := context.Background()
+	const writers = 3 // Exercise the current bounded three-attempt budget.
+	stores := make([]Store, writers)
+	for i := range stores {
+		stores[i] = g.store("concurrent-documents")
+	}
+	start := make(chan struct{})
+	errors := make(chan error, writers)
+	for i, store := range stores {
+		go func() {
+			<-start
+			_, err := store.Upsert(ctx, fmt.Sprintf("writer-%d.txt", i), "", []byte(fmt.Sprintf("intent-%d", i)))
+			errors <- err
+		}()
+	}
+	close(start)
+	for range writers {
+		if err := <-errors; err != nil {
+			t.Errorf("concurrent publication: %v", err)
+		}
+	}
+	for i := range writers {
+		doc, err := stores[0].Read(ctx, fmt.Sprintf("writer-%d.txt", i))
+		if err != nil || string(doc.Content) != fmt.Sprintf("intent-%d", i) {
+			t.Errorf("writer %d intent lost: %q, %v", i, doc.Content, err)
+		}
+	}
+}
+
+func TestDocumentLostPushAcknowledgement(t *testing.T) {
+	g := newGitServer(t)
+	store := g.store("lost-acknowledgement")
+	base := requireUpsert(t, store, "review.md", "", []byte("base\n"))
+	g.mu.Lock()
+	g.dropPushResponse = true
+	g.mu.Unlock()
+	receipt := requireUpsert(t, store, base.Name, base.Version, []byte("accepted despite lost response\n"))
+	if !receipt.Changed {
+		t.Fatal("accepted publication did not report a change")
+	}
+	remote := g.run(g.root, "", "git", "--git-dir", g.repo, "rev-parse", store.Ref())
+	if remote != receipt.Commit {
+		t.Fatalf("receipt does not identify published intent: %s != %s", receipt.Commit, remote)
+	}
+	if count := g.run(g.root, "", "git", "--git-dir", g.repo, "rev-list", "--count", store.Ref()); count != "2" {
+		t.Fatalf("lost acknowledgement duplicated publication: %s commits", count)
+	}
+	repeated := requireUpsert(t, store, receipt.Name, receipt.Version, []byte("accepted despite lost response\n"))
+	if repeated.Changed || repeated.Commit != receipt.Commit {
+		t.Fatalf("verified retry created another revision: %+v", repeated)
+	}
+}
+
+func TestDocumentTransportFailureRetainsIntent(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusServiceUnavailable} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			g := newGitServer(t)
+			store := g.store("transport-recovery")
+			base := requireUpsert(t, store, "review.md", "", []byte("base\n"))
+			g.mu.Lock()
+			g.responseStatus = status
+			g.mu.Unlock()
+			intent := []byte("retained offline intent\n")
+			_, err := store.Upsert(context.Background(), base.Name, base.Version, intent)
+			var failure *OperationError
+			if !errors.As(err, &failure) || failure.Code != "fetch_failed" || failure.Conflict == nil {
+				t.Fatalf("transport failure lost structured intent evidence: %v", err)
+			}
+			if got := g.run(g.root, "", "git", "--git-dir", failure.Conflict.LocalRepository, "show", "refs/nugs/intent:documents/"+base.Name); got != strings.TrimSpace(string(intent)) {
+				t.Fatalf("failed transfer lost exact local intent: %q", got)
+			}
+			if got := g.run(g.root, "", "git", "--git-dir", g.repo, "rev-parse", store.Ref()); got != base.Commit {
+				t.Fatal("failed transfer changed remote history")
+			}
+			g.mu.Lock()
+			g.responseStatus = 0
+			g.mu.Unlock()
+			recovered := requireUpsert(t, store, base.Name, base.Version, intent)
+			doc, err := g.store(store.Workspace).Read(context.Background(), base.Name)
+			if err != nil || !bytes.Equal(doc.Content, intent) || doc.Version != recovered.Version {
+				t.Fatalf("fresh reader could not recover retry: %+v, %v", doc, err)
+			}
+		})
+	}
 }
 
 func (g *gitServer) store(workspace string) Store {
