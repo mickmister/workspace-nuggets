@@ -63,6 +63,19 @@ type upsertInput struct {
 	ContentBase64      *string `json:"content_base64,omitempty" jsonschema:"Base64 for exact binary content"`
 }
 
+type runInput struct {
+	WorkspaceReference string  `json:"workspace_ref,omitempty"`
+	Workspace          string  `json:"workspace,omitempty"`
+	RunID              string  `json:"run" jsonschema:"Stable run ID; independent of runner/session/branch identity"`
+	Purpose            string  `json:"purpose,omitempty"`
+	Task               string  `json:"task,omitempty"`
+	Name               string  `json:"name,omitempty"`
+	Snapshot           string  `json:"snapshot,omitempty" jsonschema:"Full document commit ID for pinned reads"`
+	ExpectedVersion    string  `json:"expected_version,omitempty"`
+	Text               *string `json:"text,omitempty"`
+	ContentBase64      *string `json:"content_base64,omitempty"`
+}
+
 func toolResponse(response Response) (*mcp.CallToolResult, Response, error) {
 	return &mcp.CallToolResult{IsError: response.Error != nil}, response, nil
 }
@@ -70,6 +83,31 @@ func toolResponse(response Response) (*mcp.CallToolResult, Response, error) {
 // NewMCPServer calls Service directly; no tool launches the nugs executable.
 func NewMCPServer(service Service) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "nugs", Version: Version}, &mcp.ServerOptions{Instructions: agentArtifactInstructions})
+	for _, tool := range []struct{ name, operation, description string }{
+		{"run_create", "runs.create", "Create an idempotent document-backed run identity; no process state or native database is created"},
+		{"run_inspect", "runs.inspect", "Inspect a run and its resources from one current or pinned snapshot"},
+		{"run_read", "runs.read", "Read exact run artifact bytes from current or pinned reachable history"},
+		{"run_write", "runs.write", "Publish a run artifact with strict expected-version checks; never content-merge concurrent edits to it"},
+	} {
+		mcp.AddTool(server, &mcp.Tool{Name: tool.name, Description: tool.description}, func(ctx context.Context, _ *mcp.CallToolRequest, in runInput) (*mcp.CallToolResult, Response, error) {
+			req := Request{Operation: tool.operation, Workspace: in.Workspace, WorkspaceReference: in.WorkspaceReference, RunID: in.RunID, Purpose: in.Purpose, Task: in.Task, Name: in.Name, Snapshot: in.Snapshot, ExpectedVersion: in.ExpectedVersion}
+			if tool.operation == "runs.write" {
+				if (in.Text == nil) == (in.ContentBase64 == nil) {
+					return toolResponse(failedResponse(invalid("supply exactly one of text or content_base64")))
+				}
+				if in.Text != nil {
+					req.Content = []byte(*in.Text)
+				} else {
+					var err error
+					req.Content, err = base64.StdEncoding.DecodeString(*in.ContentBase64)
+					if err != nil {
+						return toolResponse(failedResponse(invalid("invalid base64 content")))
+					}
+				}
+			}
+			return toolResponse(service.Execute(ctx, req))
+		})
+	}
 	for _, tool := range []struct{ name, operation, description string }{
 		{"workspace_context", "workspace.context", "Return the persistent client workspace identity without contacting storage"},
 		{"workspaces_list", "workspace.list", "Discover stable workspace references in the current engagement only; no remote requests"},

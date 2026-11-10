@@ -485,7 +485,7 @@ func TestCLIAndStdioMCPOverHTTP(t *testing.T) {
 		t.Fatalf("MCP clients did not receive artifact workflow instructions: %q", instructions)
 	}
 	tools, err := session.ListTools(ctx, nil)
-	if err != nil || len(tools.Tools) != 14 {
+	if err != nil || len(tools.Tools) != 18 {
 		t.Fatalf("MCP tool discovery: %+v, %v", tools, err)
 	}
 	call := func(name string, args map[string]any) (*mcp.CallToolResult, Response) {
@@ -584,5 +584,22 @@ func TestCLIAndStdioMCPOverHTTP(t *testing.T) {
 	result, invalidStandalone := call("workspace_provision", map[string]any{"purpose": " \t", "expected_version": standaloneMCP.ManifestVersion})
 	if !result.IsError || invalidStandalone.Error == nil {
 		t.Fatalf("MCP blank standalone purpose accepted: %+v", invalidStandalone)
+	}
+	runCLI, err := cli("runs create", "", "--run", "cli-mcp-run", "--purpose", "Review a document")
+	if err != nil || runCLI.Run == nil {
+		t.Fatalf("CLI run create: %+v, %v", runCLI, err)
+	}
+	result, runMCP := call("run_write", map[string]any{"run": "cli-mcp-run", "name": "goals.md", "text": "draft goals\n"})
+	if result.IsError || runMCP.Receipt == nil {
+		t.Fatalf("MCP run write: %+v", runMCP)
+	}
+	pinned := runMCP.Receipt.Commit
+	runRead, err := cli("runs read", "", "--run", "cli-mcp-run", "--name", "goals.md", "--snapshot", pinned)
+	if err != nil || runRead.Document == nil || *runRead.Document.Text != "draft goals\n" {
+		t.Fatalf("CLI pinned run read: %+v, %v", runRead, err)
+	}
+	result, runMCP = call("run_inspect", map[string]any{"run": "cli-mcp-run", "snapshot": pinned})
+	if result.IsError || runMCP.Run == nil || len(runMCP.Resources) != 2 {
+		t.Fatalf("MCP pinned run inspection: %+v", runMCP)
 	}
 }

@@ -33,6 +33,10 @@ const usage = `Usage:
   nugs documents list
   nugs documents read --name NAME
   nugs documents upsert --name NAME [--expected VERSION] [--file FILE|-]
+  nugs runs create --run ID --purpose TEXT [--task REFERENCE]
+  nugs runs inspect --run ID [--snapshot COMMIT]
+  nugs runs read --run ID --name NAME [--snapshot COMMIT]
+  nugs runs write --run ID --name NAME [--expected VERSION] [--file FILE|-]
   nugs mcp
 
 Onboarding policy lives in the machine's nugs/config.json under its user config
@@ -89,6 +93,9 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 	dataDir := flags.String("data-dir", "", "new persistent collection directory for native restoration")
 	collectionID := flags.String("collection-id", "", "expected collection identity from a native publication receipt")
 	doltCommit := flags.String("dolt-commit", "", "expected native Dolt checkpoint from a publication receipt")
+	runID := flags.String("run", "", "stable workflow run identity")
+	snapshot := flags.String("snapshot", "", "immutable document commit for pinned workflow run reads")
+	task := flags.String("task", "", "originating task reference for a workflow run")
 	var repositories repositoryFlags
 	flags.Var(&repositories, "repo", "repository path relative to --root; repeat for all memberships")
 	if err := flags.Parse(args); err != nil {
@@ -248,8 +255,8 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 		}
 		return 0
 	}
-	req := Request{Operation: operation, Workspace: *workspace, WorkspaceReference: *workspaceRef, Name: *name, ExpectedVersion: *expected, Root: *root, Repositories: repositories, Purpose: *purpose, DataDir: *dataDir, CollectionID: *collectionID, DoltCommit: *doltCommit}
-	if operation == "documents.upsert" {
+	req := Request{Operation: operation, Workspace: *workspace, WorkspaceReference: *workspaceRef, Name: *name, ExpectedVersion: *expected, Root: *root, Repositories: repositories, Purpose: *purpose, DataDir: *dataDir, CollectionID: *collectionID, DoltCommit: *doltCommit, RunID: *runID, Snapshot: *snapshot, Task: *task}
+	if operation == "documents.upsert" || operation == "runs.write" {
 		var err error
 		if *file == "-" {
 			req.Content, err = io.ReadAll(stdin)

@@ -32,6 +32,9 @@ type Request struct {
 	DataDir            string
 	CollectionID       string
 	DoltCommit         string
+	RunID              string
+	Snapshot           string
+	Task               string
 }
 
 type DocumentView struct {
@@ -60,6 +63,7 @@ type Response struct {
 	CatchUp            *BeadsCatchUp         `json:"catch_up,omitempty"`
 	Handoff            *WorkspaceHandoff     `json:"handoff,omitempty"`
 	Synchronization    *BeadsSynchronization `json:"synchronization,omitempty"`
+	Run                *WorkflowRun          `json:"run,omitempty"`
 }
 
 func ResourceURI(workspace, name string) string {
@@ -182,9 +186,27 @@ func (s Service) Execute(ctx context.Context, req Request) Response {
 		}
 	case "documents.list":
 		res.Resources, err = store.List(ctx)
-	case "documents.read":
+	case "runs.create":
+		var receipt Receipt
+		res.Run, receipt, err = store.CreateRun(ctx, req.RunID, req.Purpose, req.Task)
+		if err == nil {
+			res.Receipt = &receipt
+		}
+	case "runs.inspect":
+		res.Run, res.Resources, err = store.InspectRun(ctx, req.RunID, req.Snapshot)
+	case "runs.write":
+		var receipt Receipt
+		receipt, err = store.WriteRun(ctx, req.RunID, req.Name, req.ExpectedVersion, req.Content)
+		if err == nil {
+			res.Receipt = &receipt
+		}
+	case "documents.read", "runs.read":
 		var doc Document
-		doc, err = store.Read(ctx, req.Name)
+		if req.Operation == "runs.read" {
+			doc, err = store.ReadRun(ctx, req.RunID, req.Name, req.Snapshot)
+		} else {
+			doc, err = store.Read(ctx, req.Name)
+		}
 		if err == nil {
 			view := &DocumentView{Resource: doc.Resource, ContentBase64: base64.StdEncoding.EncodeToString(doc.Content)}
 			if utf8.Valid(doc.Content) {
@@ -211,6 +233,9 @@ func (s Service) Execute(ctx context.Context, req Request) Response {
 		}
 		if res.Receipt != nil {
 			res.Receipt.URI = ResourceURI(binding.Reference, res.Receipt.Name)
+		}
+		if res.Run != nil {
+			res.Run.Resource.URI = ResourceURI(binding.Reference, res.Run.Resource.Name)
 		}
 	}
 	if err != nil {

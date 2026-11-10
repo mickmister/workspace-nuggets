@@ -320,6 +320,16 @@ func (t *transaction) candidate(ctx context.Context, base, name, blob string) (s
 // Upsert uses a blob OID as the per-resource expected version. Empty means create
 // only. An intent ref is durable before network activity and retained on failure.
 func (s Store) Upsert(ctx context.Context, name, expected string, content []byte) (Receipt, error) {
+	return s.upsert(ctx, name, expected, content, false)
+}
+
+// UpsertStrict may reconcile other resources, but never merges a concurrent edit
+// of this resource. Use it for review/control records whose exact bytes matter.
+func (s Store) UpsertStrict(ctx context.Context, name, expected string, content []byte) (Receipt, error) {
+	return s.upsert(ctx, name, expected, content, true)
+}
+
+func (s Store) upsert(ctx context.Context, name, expected string, content []byte, strict bool) (Receipt, error) {
 	if err := validateName(name); err != nil {
 		return Receipt{}, err
 	}
@@ -417,6 +427,15 @@ func (s Store) Upsert(ctx context.Context, name, expected string, content []byte
 		}
 		if remote == "" || remote == base {
 			return Receipt{}, failure("publish_failed", "push rejected; local intent retained", remote, pushErr.Error())
+		}
+		if strict {
+			current, err := versionAt(ctx, t, remote, name)
+			if err != nil {
+				return Receipt{}, failure("publish_failed", "cannot inspect concurrent resource; local intent retained", remote, err.Error())
+			}
+			if current != expected {
+				return Receipt{}, failure("conflict", "strict resource version changed; local intent retained", remote, "automatic content merge disabled")
+			}
 		}
 		out, err := t.git(ctx, nil, "merge-tree", "--write-tree", "--allow-unrelated-histories", local, remote)
 		if err != nil {
