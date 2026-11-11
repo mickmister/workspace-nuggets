@@ -1,5 +1,24 @@
 # Nugs: Git-first design record
 
+## Current messages/media direction (supersedes historical proposals below)
+
+The latest user policy requires message bodies, catalogs, event/index history and
+portable reader state in S3; media, including screenshots, follows the same
+workspace-first/type-second storage boundary. Only data with bounded growth is
+eligible for Git. A small current file rewritten per message would still grow Git
+history, so size is not judged only at HEAD. Old Git/Git and S3/Git message routes
+are disabled. Beads/documents keep their existing independent contracts; there is
+no implicit migration or deletion of other kinds.
+
+Messages/media are implemented in shared Go CLI/MCP services using compressed
+immutable JSONL B+tree blocks, small conditional roots, exact content sharing with
+separate occurrence provenance, and bounded authenticated reader tokens. Native
+OpenCode capture is version-gated and read-only, not export-first. See
+[S3_NUGS.md](S3_NUGS.md) for the maintained implementation contract and limits.
+Native session resume remains CI-only, using selected S3/Actions artifacts;
+session and OTel payloads do not belong in Git. Earlier statements below about
+raw-export session refs and deferred S3 are historical, not current authorization.
+
 ## Confirmed direction
 
 The submitted form on `task-3vt.11` establishes the initial direction, with later
@@ -29,14 +48,15 @@ Do not retain a mandatory S3 catalog, Node runtime or VK schema in the Go core.
 
 ## Typed nug boundaries and implementation plan
 
-The five in-scope kinds are:
+The six in-scope kinds are:
 
 | Kind | Content boundary | Storage contract |
 | --- | --- | --- |
 | Beads | Native task graph and history | Implemented `refs/dolt/<workspace>` through native Dolt |
 | Documents | Authored forms, plans, decisions, research and reports | Implemented `refs/documents/<workspace>` |
-| Messages | Normalized back-and-forth user messages and agent responses | Proposed Git `refs/messages/<workspace>`; schema/API not implemented |
-| Sessions | Raw native agent session exports, including source-specific parts | Proposed Git `refs/sessions/<workspace>`; schema/API not implemented |
+| Messages | Nonempty authored text/attachment occurrences and source coverage | S3 workspace-scoped bounded catalogs/content; explicit reader ACK |
+| Media | Exact binary content including screenshots | S3 workspace-scoped binary fragments and bounded metadata catalogs |
+| Sessions | Native agent state sufficient for supported CI continuation | Planned S3/Actions artifacts; no native payloads in Git |
 | OTel | Agent/workload telemetry with signal identity and observation coverage | Required separate kind; backend, namespace and policy unresolved |
 
 Kind is determined by purpose, not JSON/text encoding. A report about a session is
@@ -224,7 +244,8 @@ preserving legitimate repeated prompts, branches/retries and corrections.
 ## Accepted Git confidentiality
 
 The same response selects `private_git_v1`: authenticated private Git access
-controls are sufficient for v1 Beads, documents and Git-backed messages/sessions.
+controls are sufficient for the original Beads/document slice. Later policy
+excludes message/session/media payloads from Git regardless of repository privacy.
 This explicitly supersedes the earlier generated-key client-side encryption requirement for these
 Git-backed components. Repository readers can read their content/history; custom
 refs are organizational namespaces, not separate confidentiality boundaries.

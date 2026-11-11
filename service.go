@@ -17,24 +17,31 @@ type Service struct {
 	RegistryPath       string
 	ContextDir         string
 	WorkspaceReference string
+	MessageTargets     map[string]MessageTarget
 }
 
 type Request struct {
-	Operation          string
-	Workspace          string
-	WorkspaceReference string
-	Name               string
-	ExpectedVersion    string
-	Content            []byte
-	Root               string
-	Repositories       []string
-	Purpose            string
-	DataDir            string
-	CollectionID       string
-	DoltCommit         string
-	RunID              string
-	Snapshot           string
-	Task               string
+	Category, Source                                              string
+	OtherTarget                                                   string
+	Operation                                                     string
+	Workspace                                                     string
+	WorkspaceReference                                            string
+	Name                                                          string
+	ExpectedVersion                                               string
+	Content                                                       []byte
+	Root                                                          string
+	Repositories                                                  []string
+	Purpose                                                       string
+	DataDir                                                       string
+	CollectionID                                                  string
+	DoltCommit                                                    string
+	RunID                                                         string
+	Snapshot                                                      string
+	Task                                                          string
+	Target, Database, NativeVersion, Session, Role, Reader, Token string
+	Limit                                                         int
+	Aliases                                                       []string
+	VKDatabase, VKWorkspace                                       string
 }
 
 type DocumentView struct {
@@ -44,6 +51,8 @@ type DocumentView struct {
 }
 
 type Response struct {
+	NugTypes           []string              `json:"nug_types,omitempty"`
+	Media              *MediaResult          `json:"media,omitempty"`
 	Workspace          string                `json:"workspace"`
 	WorkspaceReference string                `json:"workspace_ref,omitempty"`
 	Engagement         string                `json:"engagement,omitempty"`
@@ -64,6 +73,7 @@ type Response struct {
 	Handoff            *WorkspaceHandoff     `json:"handoff,omitempty"`
 	Synchronization    *BeadsSynchronization `json:"synchronization,omitempty"`
 	Run                *WorkflowRun          `json:"run,omitempty"`
+	Messages           *MessageResult        `json:"messages,omitempty"`
 }
 
 func ResourceURI(workspace, name string) string {
@@ -73,6 +83,7 @@ func ResourceURI(workspace, name string) string {
 func (s Service) Execute(ctx context.Context, req Request) Response {
 	var binding *WorkspaceBinding
 	var registry Registry
+	var workspaceRoot string
 	if s.RegistryPath != "" {
 		var err error
 		registry, err = readRegistry(s.RegistryPath)
@@ -88,6 +99,10 @@ func (s Service) Execute(ctx context.Context, req Request) Response {
 			return failedResponse(err)
 		}
 		binding = &b
+		workspaceRoot = root
+		if strings.HasPrefix(req.Operation, "messages.") && (req.WorkspaceReference != "" && req.WorkspaceReference != b.Reference || req.Workspace != "" && req.Workspace != b.Workspace) {
+			return failedResponse(invalid("message workspace selection mismatch"))
+		}
 		s.Remote, s.CacheDir, req.Workspace = b.Remote, b.CacheDir, b.Workspace
 		if strings.HasPrefix(req.Operation, "beads.") || req.Operation == "workspace.provision" {
 			if req.Root == "" {
@@ -126,7 +141,52 @@ func (s Service) Execute(ctx context.Context, req Request) Response {
 		res.WorkspaceReference, res.Engagement = binding.Reference, binding.Engagement
 	}
 	var err error
+	if strings.HasPrefix(req.Operation, "media.") {
+		res.Media, err = s.executeMedia(ctx, req, binding)
+		res.Ref = ""
+		if err != nil {
+			res.Error = failedResponse(err).Error
+		}
+		return res
+	}
+	if strings.HasPrefix(req.Operation, "messages.") {
+		// Native scans must use an attachment for the selected namespace, not the
+		// current directory of a different explicitly selected workspace.
+		if binding != nil {
+			current, _, resolveErr := registry.resolve(s.ContextDir, "", "")
+			if resolveErr != nil {
+				return failedResponse(resolveErr)
+			}
+			if current.Reference != binding.Reference {
+				workspaceRoot = ""
+				for _, a := range registry.Attachments {
+					if a.Reference == binding.Reference {
+						if req.Root != "" && req.Root != "." {
+							selected, _ := canonicalDirectory(req.Root)
+							if selected == a.Root {
+								workspaceRoot = a.Root
+								break
+							}
+							continue
+						}
+						if workspaceRoot != "" {
+							return failedResponse(invalid("selected workspace has multiple attachments; select --root for native scan"))
+						}
+						workspaceRoot = a.Root
+					}
+				}
+			}
+		}
+		res.Messages, err = s.executeMessages(ctx, req, binding, workspaceRoot)
+		res.Ref = ""
+		if err != nil {
+			res.Error = failedResponse(err).Error
+		}
+		return res
+	}
 	switch req.Operation {
+	case "types.list":
+		res.NugTypes = []string{"beads", "documents", "messages", "media"}
 	case "workspace.context":
 		if binding == nil {
 			err = invalid("workspace context requires a persistent attachment")

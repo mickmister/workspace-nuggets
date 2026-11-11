@@ -2,26 +2,29 @@
 
 A standalone Go CLI and MCP server for workspace-scoped agent context.
 
-## Current first slice
+## Current storage support
 
-The implemented storage slice is Git-backed **Beads and documents**.
+Implemented storage includes Git-backed **Beads and documents** and S3-backed
+**messages and media**.
 The CLI and stdio MCP server now share Go operations for workspace document
 browsing, reading and version-checked upserts. Workspace-owned Beads native remote
 configuration and inspection are also available. Existing `bd` operations own task
-editing; nugs provides native checkpoint, sync and recovery operations. Typed
-message/session storage and the OpenCode adapter remain planned work.
+editing; nugs provides native checkpoint, sync and recovery operations. Messages
+include read-only native OpenCode capture and explicit reader ACK/replay. Native
+session resume remains planned work.
 
 | Kind | Storage | Status and purpose |
 | --- | --- | --- |
 | Beads | `refs/dolt/<workspace>` | Implemented: native task graph through Dolt Git transport |
 | Documents | `refs/documents/<workspace>` | Implemented: authored forms, plans, decisions and reports as Git blobs/commits |
-| Messages | Proposed `refs/messages/<workspace>` | Planned: normalized user messages and agent responses, independent of producer format |
-| Sessions | Proposed `refs/sessions/<workspace>` | Planned: raw agent-native session exports, preserving source structure |
+| Messages | S3, workspace-first/type-second | Authored text/attachments, compressed content sharing, bounded catalogs and explicit reader ACK |
+| Media | S3, workspace-first/type-second | Exact binary files including screenshots, bounded metadata catalogs and pinned reads |
+| Sessions | Planned S3 or Actions artifacts | CI-only native resume bundles; native payloads do not belong in Git |
 | OTel | Backend/namespace undecided | Required separate type; capture, content policy and retention remain design work |
 
 Messages and sessions are separate first-class kinds, not document subdirectories.
-The proposed refs replace the earlier design-only conversation namespace; they
-are not available CLI/MCP APIs yet. Current CI workflows have saved native session
+Message CLI/MCP APIs use S3 rather than the earlier proposed conversation refs.
+Current CI workflows have saved native session
 exports through the document API. Those are legacy records to preserve until an
 explicit migration verifies bytes, provenance and links; setup does not move them.
 
@@ -540,16 +543,15 @@ Restore local version metadata after the manual bootstrap if needed.
 
 ## OpenCode adapter boundary
 
-Use the supported `opencode export <session-id>` interface, optionally consuming
-an already exported file. Require an explicit session; do not scrape its private
-SQLite schema or use an interactive "latest session" picker. The inspected export
-shape is `{ info, messages: [{ info, parts }] }`. Preserve native IDs/order and
-unknown parts in the raw session kind; normalized prompts/responses belong to the
-message kind with links back to that source session. Label
-truncated/incomplete sources honestly. Export sanitization is an explicit content
-policy, not a claim that every native exporter has already redacted data.
-This is a planned adapter contract, not an implemented import command. See the
-typed-kind and migration requirements in [DESIGN.md](DESIGN.md).
+The message adapter uses version-gated read-only native OpenCode SQLite capture,
+starting with 1.19.4. It matches explicit workspace/member directories, preserves
+nonempty user/assistant text and origin labels, and excludes tool/result/reasoning
+bodies and empty execution envelopes. It does not retain raw native exports or
+claim that a message capture is a resumable native session.
+
+See [S3_NUGS.md](S3_NUGS.md) for messages and the `media` nug type: workspace-first
+S3 paths, explicit bindings, JSONL block budgets, content sharing, native capture,
+reader ACK/replay, media commands, limitations and local MinIO acceptance.
 
 ## Decisions and outstanding questions
 

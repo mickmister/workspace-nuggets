@@ -26,9 +26,11 @@ type WorkspaceContext struct {
 
 type WorkspaceBinding struct {
 	WorkspaceContext
-	Remote       string `json:"remote"`
-	CacheDir     string `json:"cache_dir"`
-	CollectionID string `json:"collection_id,omitempty"`
+	Remote         string                   `json:"remote"`
+	CacheDir       string                   `json:"cache_dir"`
+	CollectionID   string                   `json:"collection_id,omitempty"`
+	MessageTargets map[string]MessageTarget `json:"message_targets,omitempty"`
+	MediaTargets   map[string]MessageTarget `json:"media_targets,omitempty"`
 }
 
 type workspaceAttachment struct {
@@ -72,6 +74,22 @@ func readRegistry(filename string) (Registry, error) {
 		}
 		if err := (Store{Remote: b.Remote, Workspace: b.Workspace}).validate(); err != nil {
 			return r, err
+		}
+		for name, target := range b.MessageTargets {
+			if err := validateMessageLabel(name); err != nil {
+				return r, err
+			}
+			if err := target.validate(); err != nil {
+				return r, err
+			}
+		}
+		for name, target := range b.MediaTargets {
+			if err := validateMessageLabel(name); err != nil {
+				return r, err
+			}
+			if err := target.validate(); err != nil {
+				return r, err
+			}
 		}
 		refs[b.Reference] = true
 	}

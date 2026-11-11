@@ -27,7 +27,8 @@
     "go.sum",
     "cmd/",
     "README.md",
-    "DESIGN.md"
+    "DESIGN.md",
+    "S3_NUGS.md"
   ],
   "scripts": {
     "build": "node scripts/build-npm.mjs",

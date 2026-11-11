@@ -83,6 +83,8 @@ func toolResponse(response Response) (*mcp.CallToolResult, Response, error) {
 // NewMCPServer calls Service directly; no tool launches the nugs executable.
 func NewMCPServer(service Service) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "nugs", Version: Version}, &mcp.ServerOptions{Instructions: agentArtifactInstructions})
+	addMessageTools(server, service)
+	addMediaTools(server, service)
 	for _, tool := range []struct{ name, operation, description string }{
 		{"run_create", "runs.create", "Create an idempotent document-backed run identity; no process state or native database is created"},
 		{"run_inspect", "runs.inspect", "Inspect a run and its resources from one current or pinned snapshot"},
@@ -110,6 +112,7 @@ func NewMCPServer(service Service) *mcp.Server {
 	}
 	for _, tool := range []struct{ name, operation, description string }{
 		{"workspace_context", "workspace.context", "Return the persistent client workspace identity without contacting storage"},
+		{"nug_types_list", "types.list", "List implemented nug types; messages and media require S3"},
 		{"workspaces_list", "workspace.list", "Discover stable workspace references in the current engagement only; no remote requests"},
 		{"storage_bootstrap", "storage.bootstrap", "Explicitly bootstrap the selected data repository with an empty ordinary branch for native Dolt; preserves all existing branches and custom refs"},
 		{"workspace_inspect", "workspace.inspect", "Inspect a workspace manifest with repository branch pointers and document resources"},

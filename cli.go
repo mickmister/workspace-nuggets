@@ -2,6 +2,7 @@ package nuggets
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -16,6 +17,21 @@ import (
 const usage = `Usage:
   nugs config set --remote URL [--cache DIR]
   nugs config show
+  nugs config target --target NAME --file PROFILE.json
+  nugs types list
+  nugs media bind --target NAME
+  nugs media import --target NAME --name ID --file FILE [--filename NAME] [--category screenshot] [--source URI] [--expected REVISION]
+  nugs media list --target NAME [--limit N] [--token TOKEN]
+  nugs media read --target NAME --name ID [--snapshot HASH] [--file NEW-OUTPUT-FILE]
+  nugs media verify --target NAME --name ID [--snapshot HASH]
+  nugs config message-target --target NAME --file PROFILE.json
+  nugs messages bind --target NAME
+  nugs messages scan|sync [--target NAME] [--database FILE] [--native-version VERSION] [--session ID] [--repo MEMBER ...] [--alias OLD-DIR ...] [--limit N]
+  nugs messages import [--target NAME] --file NORMALIZED-BATCH.json
+  nugs messages sessions|read|verify [--target NAME] [--session ID] [--role user|assistant] [--name MESSAGE-ID] [--snapshot HASH]
+  nugs messages prepare|catch-up [--target NAME] --reader NAME [--limit N]
+  nugs messages read-page|ack [--target NAME] --reader NAME --token TOKEN
+  nugs messages reader [--target NAME] --reader NAME
   nugs workspace init [--root DIR] [--workspace HANDLE]
   nugs workspace attach --root DIR [--workspace-ref REF | --engagement NAME --remote URL --workspace HANDLE]
   nugs workspace restore --root DIR --data-dir DIR --file HANDOFF.json --remote URL
@@ -96,6 +112,22 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 	runID := flags.String("run", "", "stable workflow run identity")
 	snapshot := flags.String("snapshot", "", "immutable document commit for pinned workflow run reads")
 	task := flags.String("task", "", "originating task reference for a workflow run")
+	mediaFilename := flags.String("filename", "", "original media filename")
+	category := flags.String("category", "", "media category, for example screenshot")
+	source := flags.String("source", "", "media provenance/source reference")
+	target := flags.String("target", "", "explicit named message target")
+	otherTarget := flags.String("other-target", "", "second bound message target for explicit semantic comparison")
+	database := flags.String("database", defaultOpenCodeDatabase(), "read-only native OpenCode SQLite database")
+	nativeVersion := flags.String("native-version", "", "observed OpenCode version; omitted invokes opencode --version")
+	vkDatabase := flags.String("vk-database", "", "optional read-only VK SQLite association verification")
+	vkWorkspace := flags.String("vk-workspace", "", "explicit VK workspace UUID for association verification")
+	session := flags.String("session", "", "native session ID or canonical message session ID")
+	role := flags.String("role", "", "authored-message role filter")
+	reader := flags.String("reader", "", "stable logical reader, independent of native session/CI run")
+	token := flags.String("token", "", "opaque issued page token")
+	limit := flags.Int("limit", 100, "message page size or native scan session limit; sync --limit 0 scans all matching sessions")
+	var aliases repositoryFlags
+	flags.Var(&aliases, "alias", "explicit historical native directory alias; repeatable")
 	var repositories repositoryFlags
 	flags.Var(&repositories, "repo", "repository path relative to --root; repeat for all memberships")
 	if err := flags.Parse(args); err != nil {
@@ -126,10 +158,63 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	config, err := loadConfig(filename, !seen["config"] || operation == "config.set")
+	config, err := loadConfig(filename, !seen["config"] || operation == "config.set" || operation == "config.message-target" || operation == "config.target")
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
+	}
+	if operation == "config.message-target" || operation == "config.target" {
+		if err := validateMessageLabel(*target); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		var content []byte
+		if *file == "-" {
+			content, err = io.ReadAll(io.LimitReader(stdin, 65537))
+		} else {
+			content, err = os.ReadFile(*file)
+		}
+		var profile MessageTarget
+		if len(content) > 65536 {
+			fmt.Fprintln(stderr, "target profile exceeds 64 KiB")
+			return 2
+		}
+		if err == nil {
+			decoder := json.NewDecoder(strings.NewReader(string(content)))
+			decoder.DisallowUnknownFields()
+			err = decoder.Decode(&profile)
+			if err == nil {
+				if trailing := decoder.Decode(new(any)); trailing != io.EOF {
+					err = invalid("target profile must contain one JSON object")
+				}
+			}
+		}
+		if err == nil {
+			err = profile.validateWrite()
+		}
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		if profile.Remote != "" && !strings.Contains(profile.Remote, ":") {
+			profile.Remote, err = filepath.Abs(profile.Remote)
+		}
+		if profile.CredentialsFile != "" {
+			profile.CredentialsFile, err = filepath.Abs(profile.CredentialsFile)
+		}
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		if config.MessageTargets == nil {
+			config.MessageTargets = map[string]MessageTarget{}
+		}
+		config.MessageTargets[*target] = profile
+		if err := saveConfig(filename, config); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		return 0
 	}
 	if operation == "config.set" || operation == "config.show" {
 		if operation == "config.set" {
@@ -233,7 +318,7 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 		return 2
 	}
 	binding, _, contextErr := registry.resolve(cwd, *workspaceRef, *workspace)
-	service := Service{RegistryPath: registryPath, ContextDir: cwd, WorkspaceReference: *workspaceRef}
+	service := Service{RegistryPath: registryPath, ContextDir: cwd, WorkspaceReference: *workspaceRef, MessageTargets: config.MessageTargets}
 	if contextErr != nil {
 		// Retain the explicit transport adapter used by existing trusted CI
 		// handoffs. Mutable machine defaults and branch inference never enter it.
@@ -256,12 +341,35 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 		return 0
 	}
 	req := Request{Operation: operation, Workspace: *workspace, WorkspaceReference: *workspaceRef, Name: *name, ExpectedVersion: *expected, Root: *root, Repositories: repositories, Purpose: *purpose, DataDir: *dataDir, CollectionID: *collectionID, DoltCommit: *doltCommit, RunID: *runID, Snapshot: *snapshot, Task: *task}
-	if operation == "documents.upsert" || operation == "runs.write" {
+	req.Target, req.Database, req.NativeVersion, req.Session, req.Role, req.Reader, req.Token, req.Limit, req.Aliases = *target, *database, *nativeVersion, *session, *role, *reader, *token, *limit, aliases
+	req.VKDatabase, req.VKWorkspace = *vkDatabase, *vkWorkspace
+	req.OtherTarget = *otherTarget
+	req.Category, req.Source = *category, *source
+	if operation == "media.import" {
+		req.Purpose = *mediaFilename
+	}
+	if operation == "documents.upsert" || operation == "runs.write" || operation == "messages.import" || operation == "media.import" {
 		var err error
 		if *file == "-" {
-			req.Content, err = io.ReadAll(stdin)
+			input := stdin
+			if operation == "media.import" {
+				input = io.LimitReader(stdin, mediaSizeLimit+1)
+			}
+			req.Content, err = io.ReadAll(input)
 		} else {
-			req.Content, err = os.ReadFile(*file)
+			if operation == "media.import" {
+				var f *os.File
+				f, err = os.Open(*file)
+				if err == nil {
+					req.Content, err = io.ReadAll(io.LimitReader(f, mediaSizeLimit+1))
+					f.Close()
+				}
+				if req.Purpose == "" {
+					req.Purpose = filepath.Base(*file)
+				}
+			} else {
+				req.Content, err = os.ReadFile(*file)
+			}
 		}
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -269,6 +377,26 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 		}
 	}
 	response := service.Execute(ctx, req)
+	if operation == "media.read" && response.Error == nil && response.Media != nil && seen["file"] && *file != "-" {
+		content, err := base64.StdEncoding.DecodeString(response.Media.ContentBase64)
+		if err == nil {
+			var output *os.File
+			output, err = os.OpenFile(*file, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+			if err == nil {
+				_, err = output.Write(content)
+				closeErr := output.Close()
+				if err == nil {
+					err = closeErr
+				}
+			}
+		}
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		response.Media.ContentBase64 = ""
+		response.Media.OutputFile = *file
+	}
 	if err := json.NewEncoder(stdout).Encode(response); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
