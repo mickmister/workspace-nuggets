@@ -271,18 +271,20 @@ func listAt(ctx context.Context, t *transaction, head string) ([]Resource, error
 }
 
 func (s Store) Read(ctx context.Context, name string) (Document, error) {
+	return s.ReadSnapshot(ctx, name, "")
+}
+
+// ReadSnapshot resolves the path in an exact retained workspace commit. An empty
+// snapshot preserves the ordinary latest read. Never silently fall back to HEAD.
+func (s Store) ReadSnapshot(ctx context.Context, name, snapshot string) (Document, error) {
 	if err := validateName(name); err != nil {
 		return Document{}, err
 	}
-	t, err := s.begin(ctx)
+	t, head, err := s.runTransaction(ctx, snapshot)
 	if err != nil {
 		return Document{}, err
 	}
 	defer os.RemoveAll(t.dir)
-	head, err := s.fetch(ctx, t)
-	if err != nil {
-		return Document{}, err
-	}
 	return readAt(ctx, t, head, name)
 }
 

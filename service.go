@@ -265,7 +265,7 @@ func (s Service) Execute(ctx context.Context, req Request) Response {
 		if req.Operation == "runs.read" {
 			doc, err = store.ReadRun(ctx, req.RunID, req.Name, req.Snapshot)
 		} else {
-			doc, err = store.Read(ctx, req.Name)
+			doc, err = store.ReadSnapshot(ctx, req.Name, req.Snapshot)
 		}
 		if err == nil {
 			view := &DocumentView{Resource: doc.Resource, ContentBase64: base64.StdEncoding.EncodeToString(doc.Content)}
