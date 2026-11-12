@@ -23,18 +23,13 @@ Read the [shared store conventions](../nug-document-authoring/references/documen
    new content; do not silently choose an automatic winner. Verify publication and
    readback, then hand off a full revision-pinned UI URL, not a runner path.
 
-## Review packets
+## Review workflow status
 
-For an existing unanswered packet covering the same outcome, update that request
-with a new manifest revision and verified member references. Keep target and
-baseline fixed for each revision; the user can see both the full document and delta.
-Show an explicit update rather than change content underneath an answer. Responses
-remain paired with the exact request revision. Follow the currently implemented
-review publisher/intake contract; do not guess flags or fabricate receipts.
-
-A materially different question or follow-up round may warrant a linked request.
-A different runner or native session does not. Shared documents stay in their
-canonical location; feedback/drafts stay isolated by request/reviewed revision.
+Review-request operating procedures are pending acceptance under task-z5a. Consult
+the shared conventions and that work's current evidence before working on review
+resources. This skill does not establish how to create, update, discover, read or
+submit a request. Preserve existing request/form identities, reviewed revisions and
+historical answers while that process is being established.
 
 ## Boundary reminder
 

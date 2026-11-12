@@ -36,10 +36,9 @@ evidence summaries qualify by purpose; do not turn that exception into a log sto
 - Shared current knowledge: `projects/<project>/<initiative>/design.md`, `plan.md`,
   `research/summary.md`, `decisions/`, or `forms/`. Use existing initiatives and
   stable paths; do not create a project for every task or duplicate canonical docs.
-- Focused review: `review-requests/<request-id>/request.json` with optional `forms/`,
-  `patches/` and paired `responses/`. Reference documents where they live, pin all
-  member/form revisions and optional baseline checkpoints, and return the request
-  link. A thread can have multiple request rounds.
+- Review resources: `review-requests/` is an existing namespace. Its operating
+  process is pending acceptance under task-z5a; see the shared conventions before
+  working with it. General document publication does not require a review packet.
 
 Use lowercase kebab-case; dates identify immutable investigations/phase records,
 not every prose edit. `vN` identifies actual form/schema contracts. A short prose
@@ -54,7 +53,6 @@ for a new name and the observed version for updates. Read back and compare exact
 bytes/version before saying saved. Use a pinned snapshot for historical reads.
 
 Give the user a full revision-pinned UI URL using the conventions, and record the
-resource/version in the owner Bead. A meaningful deliverable/decision normally
-creates or updates a review packet; a new revision must not silently rebind an
-existing human review session or submitted answer. Do not invent a deployed route,
-CLI option or review capability: inspect current tool help/product contracts.
+resource/version in the owner Bead. Preserve existing reviewed revisions and answers.
+Review-request creation, updating and reading procedures will be documented after
+the workflow is established and accepted; do not infer them from directory names.
