@@ -30,10 +30,11 @@ payload store, source repository, or retire obsolete material explicitly.
 Record resource provenance in Beads and give users full revision-pinned document
 UI URLs. Construct them manually as described in the shared conventions until
 configured URL generation in nugs is available (task-n3j). Do not hand off only a
-bare nug path, `nugs://` URI, or runner path. Preserve real form IDs and exact DSL
-versions; use the supported form/review response transport and keep original
-answers immutable. Product code, maintained product documentation, schemas and
-reusable test fixtures remain source-controlled.
+bare nug path, `nugs://` URI, or runner path. Preserve real form IDs, exact DSL
+versions and original answers. Review-request operating procedures remain pending
+workflow acceptance under task-z5a; consult the shared conventions for status before
+working with review resources. Product code, maintained product documentation,
+schemas and reusable test fixtures remain source-controlled.
 
 Before a source commit or artifact publication, and at task closure, ask: did this
 change current guidance, record a decision, supersede a draft, or produce a

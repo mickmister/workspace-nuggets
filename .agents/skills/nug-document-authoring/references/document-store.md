@@ -6,7 +6,7 @@
 |---|---|
 | `projects/<project>/<initiative>/` | Shared current knowledge, specs, decisions, forms and compact evidence |
 | `threads/<bead-id>/` | Working documents for one bounded question/outcome |
-| `review-requests/<request-id>/` | Mechanically discoverable focused request, forms/patches and paired responses |
+| `review-requests/` | Existing review resources; operating procedures pending task-z5a acceptance |
 | `archive/<project>/<initiative>/` | Useful historical documents and phase manifests |
 
 Root `README.md` is the workspace entry index. Do not recreate top-level artifact-type
@@ -29,20 +29,26 @@ transcripts, telemetry, raw outputs and growing execution histories use their ty
 remote storage contracts, ordinarily S3 or explicitly selected CI artifacts. Do not
 upload obsolete data elsewhere simply to avoid deciding whether to retire it.
 
-## Identity, revisions and review
+## Ownership and review workflow status
 
-A Bead owns a thread; native sessions are attempts/contributors within it. A request
-ID identifies one review packet/round, not the thread or native session itself.
-Discover manifests at `review-requests/*/request.json`. Members can live elsewhere;
-pin target and optional baseline resource/version/snapshot, not a mutable path or
-timestamp. Responses live beside the request, bind the exact reviewed revision and
-keep real Bead/form identities. Do not copy shared docs into each request.
+A Bead owns a thread; native sessions are attempts/contributors within it.
 
-Unanswered requests may be amended via observed-version writes. Publish members
-first, manifest last; keep open human sessions pinned when R2 appears. Submitted
-responses/answers do not silently apply to R2. Read current implementation docs
-before choosing response transport; never infer approval from agent text, an open
-page or a closed planning task. Document approval, current applicability and actual
+The review-request feature is being established under task-z5a. Implementation and
+automated transport verification have landed, while human review (task-z5a.3) and
+installed-extension end-to-end save/submission acceptance remain pending as of
+2026-11-12. Consult the owning work for current status. Deployed implementation and
+automated evidence do not by themselves establish an accepted operating process.
+
+Until that acceptance and feedback are reconciled, these hygiene skills reserve the
+existing namespace and preserve its history; they do not prescribe request creation,
+updating, discovery, reading, response submission or agent intake. General document
+publication does not require creating or updating a review request.
+
+After acceptance, document the verified lifecycle and tool contracts from actual
+create/update/read and response-intake evidence, including revision changes during
+an open review. Then reconcile these skills with those accepted instructions.
+Preserve existing request/form identities, exact reviewed revisions and historical
+answers throughout. Document approval, current applicability and actual
 implementation are different facts.
 
 ## Full user-facing document URLs
