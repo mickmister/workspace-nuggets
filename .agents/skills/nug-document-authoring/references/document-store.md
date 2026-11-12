@@ -9,7 +9,10 @@
 | `review-requests/` | Existing review resources; operating procedures pending task-z5a acceptance |
 | `archive/<project>/<initiative>/` | Useful historical documents and phase manifests |
 
-Root `README.md` is the workspace entry index. Do not recreate top-level artifact-type
+Root `README.md` is a short, hand-maintained guide to the directory structure and
+document-placement rules. Keep initiative-specific navigation inside project/thread
+directories, rather than maintaining a workspace-wide initiative or task catalog.
+Do not recreate top-level artifact-type
 folders (`forms`, `research`, `plans`, `design`, `designs`, `specs`, `evidence`,
 `reviews`, `reports`). Forms/research/specs live WITH their initiative/thread.
 No standing runbooks are required; create operating instructions only for a demonstrated
