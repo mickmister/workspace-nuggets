@@ -21,6 +21,7 @@ type readInput struct {
 	WorkspaceReference string `json:"workspace_ref,omitempty"`
 	Workspace          string `json:"workspace,omitempty"`
 	Name               string `json:"name" jsonschema:"Relative document resource name"`
+	Snapshot           string `json:"snapshot,omitempty" jsonschema:"Full retained workspace document commit ID; omit for latest"`
 }
 
 type beadsInput struct {
@@ -141,8 +142,8 @@ func NewMCPServer(service Service) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{Name: "beads_catch_up", Description: "Fetch and clean-merge a published native checkpoint through Beads, preserving newer local edits; never pull with auto-resolution or publish a winner"}, func(ctx context.Context, _ *mcp.CallToolRequest, in catchUpInput) (*mcp.CallToolResult, Response, error) {
 		return toolResponse(service.Execute(ctx, Request{Operation: "beads.catch-up", Workspace: in.Workspace, WorkspaceReference: in.WorkspaceReference, Root: in.Root, DoltCommit: in.DoltCommit}))
 	})
-	mcp.AddTool(server, &mcp.Tool{Name: "document_read", Description: "Read exact document content and its observed version"}, func(ctx context.Context, _ *mcp.CallToolRequest, in readInput) (*mcp.CallToolResult, Response, error) {
-		return toolResponse(service.Execute(ctx, Request{Operation: "documents.read", Workspace: in.Workspace, WorkspaceReference: in.WorkspaceReference, Name: in.Name}))
+	mcp.AddTool(server, &mcp.Tool{Name: "document_read", Description: "Read exact document content and its observed version from latest or a retained workspace snapshot"}, func(ctx context.Context, _ *mcp.CallToolRequest, in readInput) (*mcp.CallToolResult, Response, error) {
+		return toolResponse(service.Execute(ctx, Request{Operation: "documents.read", Workspace: in.Workspace, WorkspaceReference: in.WorkspaceReference, Name: in.Name, Snapshot: in.Snapshot}))
 	})
 	mcp.AddTool(server, &mcp.Tool{Name: "document_upsert", Description: "Store documents and intermediate artifacts such as form JSON outside source refs; create or version-check updates, reconcile clean changes and publish"}, func(ctx context.Context, _ *mcp.CallToolRequest, in upsertInput) (*mcp.CallToolResult, Response, error) {
 		var content []byte

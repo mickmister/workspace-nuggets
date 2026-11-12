@@ -536,6 +536,14 @@ func TestCLIAndStdioMCPOverHTTP(t *testing.T) {
 	if err != nil || cliRead.Document == nil || *cliRead.Document.Text != "from MCP\n" {
 		t.Fatalf("CLI cannot read MCP update: %+v, %v", cliRead, err)
 	}
+	pinnedRead, err := cli("documents read", "", "--name", "notes/review.md", "--snapshot", created.Receipt.Commit)
+	if err != nil || pinnedRead.Document == nil || *pinnedRead.Document.Text != "from CLI\n" || pinnedRead.Document.Commit != created.Receipt.Commit {
+		t.Fatalf("CLI historical document read drifted: %+v, %v", pinnedRead, err)
+	}
+	result, pinnedMCP := call("document_read", map[string]any{"workspace": "cli-mcp", "name": "notes/review.md", "snapshot": created.Receipt.Commit})
+	if result.IsError || pinnedMCP.Document == nil || *pinnedMCP.Document.Text != "from CLI\n" || pinnedMCP.Document.Commit != created.Receipt.Commit {
+		t.Fatalf("MCP historical document read drifted: %+v", pinnedMCP)
+	}
 	stale, err := cli("documents upsert", "stale", "--name", "notes/review.md", "--expected", created.Receipt.Version)
 	if err == nil || stale.Error == nil || stale.Error.Code != "conflict" {
 		t.Fatalf("CLI stale update: %+v, %v", stale, err)

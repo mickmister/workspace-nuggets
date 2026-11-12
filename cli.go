@@ -110,7 +110,7 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 	collectionID := flags.String("collection-id", "", "expected collection identity from a native publication receipt")
 	doltCommit := flags.String("dolt-commit", "", "expected native Dolt checkpoint from a publication receipt")
 	runID := flags.String("run", "", "stable workflow run identity")
-	snapshot := flags.String("snapshot", "", "immutable document commit for pinned workflow run reads")
+	snapshot := flags.String("snapshot", "", "immutable document commit for pinned document or workflow run reads")
 	task := flags.String("task", "", "originating task reference for a workflow run")
 	mediaFilename := flags.String("filename", "", "original media filename")
 	category := flags.String("category", "", "media category, for example screenshot")
