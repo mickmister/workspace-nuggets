@@ -21,6 +21,8 @@ type Service struct {
 }
 
 type Request struct {
+	Prefix                                                        string
+	All                                                           bool
 	Category, Source                                              string
 	OtherTarget                                                   string
 	Operation                                                     string
@@ -51,6 +53,7 @@ type DocumentView struct {
 }
 
 type Response struct {
+	Page               *DocumentPage         `json:"page,omitempty"`
 	NugTypes           []string              `json:"nug_types,omitempty"`
 	Media              *MediaResult          `json:"media,omitempty"`
 	Workspace          string                `json:"workspace"`
@@ -245,7 +248,7 @@ func (s Service) Execute(ctx context.Context, req Request) Response {
 			res.Receipt, res.ManifestVersion, res.Commit = &receipt, receipt.Version, receipt.Commit
 		}
 	case "documents.list":
-		res.Resources, err = store.List(ctx)
+		res.Resources, res.Page, err = store.ListPage(ctx, req.Prefix, req.Snapshot, req.Token, req.Limit, req.All)
 	case "runs.create":
 		var receipt Receipt
 		res.Run, receipt, err = store.CreateRun(ctx, req.RunID, req.Purpose, req.Task)

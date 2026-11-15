@@ -17,6 +17,16 @@ type workspaceInput struct {
 	WorkspaceReference string `json:"workspace_ref,omitempty" jsonschema:"Stable reference returned by workspace discovery; scoped to the current engagement"`
 }
 
+type documentListInput struct {
+	Workspace          string `json:"workspace,omitempty"`
+	WorkspaceReference string `json:"workspace_ref,omitempty"`
+	Prefix             string `json:"prefix,omitempty" jsonschema:"Document name prefix, for example threads/task-id/"`
+	Snapshot           string `json:"snapshot,omitempty" jsonschema:"Retained commit ID; omit for latest first page"`
+	Token              string `json:"token,omitempty" jsonschema:"Continuation token from page.next_token; retains snapshot and prefix"`
+	Limit              int    `json:"limit,omitempty" jsonschema:"Page size, default 20, maximum 100"`
+	All                bool   `json:"all,omitempty" jsonschema:"Explicit full metadata inventory instead of pagination"`
+}
+
 type readInput struct {
 	WorkspaceReference string `json:"workspace_ref,omitempty"`
 	Workspace          string `json:"workspace,omitempty"`
@@ -86,6 +96,10 @@ func NewMCPServer(service Service) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "nugs", Version: Version}, &mcp.ServerOptions{Instructions: agentArtifactInstructions})
 	addMessageTools(server, service)
 	addMediaTools(server, service)
+	mcp.AddTool(server, &mcp.Tool{Name: "documents_list", Description: "Discover a bounded page of document metadata; use prefix to narrow, page.next_token to continue the same snapshot, or all for an explicit full inventory"}, func(ctx context.Context, _ *mcp.CallToolRequest, in documentListInput) (*mcp.CallToolResult, Response, error) {
+		return toolResponse(service.Execute(ctx, Request{Operation: "documents.list", Workspace: in.Workspace, WorkspaceReference: in.WorkspaceReference,
+			Prefix: in.Prefix, Snapshot: in.Snapshot, Token: in.Token, Limit: in.Limit, All: in.All}))
+	})
 	for _, tool := range []struct{ name, operation, description string }{
 		{"run_create", "runs.create", "Create an idempotent document-backed run identity; no process state or native database is created"},
 		{"run_inspect", "runs.inspect", "Inspect a run and its resources from one current or pinned snapshot"},
@@ -117,7 +131,6 @@ func NewMCPServer(service Service) *mcp.Server {
 		{"workspaces_list", "workspace.list", "Discover stable workspace references in the current engagement only; no remote requests"},
 		{"storage_bootstrap", "storage.bootstrap", "Explicitly bootstrap the selected data repository with an empty ordinary branch for native Dolt; preserves all existing branches and custom refs"},
 		{"workspace_inspect", "workspace.inspect", "Inspect a workspace manifest with repository branch pointers and document resources"},
-		{"documents_list", "documents.list", "Browse documents with versions and resource URIs"},
 	} {
 		mcp.AddTool(server, &mcp.Tool{Name: tool.name, Description: tool.description}, func(ctx context.Context, _ *mcp.CallToolRequest, in workspaceInput) (*mcp.CallToolResult, Response, error) {
 			return toolResponse(service.Execute(ctx, Request{Operation: tool.operation, Workspace: in.Workspace, WorkspaceReference: in.WorkspaceReference}))

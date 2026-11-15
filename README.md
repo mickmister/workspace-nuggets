@@ -93,6 +93,40 @@ receipts also identify the published commit, SHA-256, byte length and inferred
 media type. An unchanged upsert with the current version creates no new commit.
 Omitting `--expected` means **create only**, not unconditional overwrite.
 
+### Bounded document discovery
+
+`nugs documents list` returns **20 metadata resources by default**, indented as one
+JSON object. It never includes document bodies. Narrow discovery to the thread or
+project you need instead of enumerating the entire workspace:
+
+```sh
+nugs documents --help
+nugs documents list --help
+nugs documents list --prefix threads/my-task/ --limit 10
+# Use the returned page.next_token verbatim; prefix and snapshot are retained.
+nugs documents list --token "$NEXT_TOKEN"
+nugs documents read --name threads/my-task/findings.md
+# Explicit compatibility path for scripts that require the full inventory:
+nugs documents list --all
+```
+
+The response's `page.total` counts matching resources. A nonempty `page.next_token`
+means more results exist. Continuation is pinned to `page.snapshot`, so concurrent
+publishing cannot skip or duplicate entries while you walk a listing. A new first
+page sees the latest snapshot. Tokens are scoped to the selected storage/workspace;
+changing the prefix or snapshot while continuing fails explicitly. Page sizes are
+1–100. `documents_list` in MCP exposes the same prefix, limit, token, snapshot and
+explicit `all` inputs. Internal `Store.List` remains a full inventory API.
+
+**Migration:** CLI/MCP consumers that previously assumed an exhaustive default
+listing must follow `page.next_token` or explicitly request `--all` (`all: true`
+for MCP). Existing resource metadata fields and versions are unchanged.
+
+Subcommand help works without configuration, a workspace attachment or storage
+access. The npm tag-triggered release workflow transfers its tested package through
+private S3 with digest verification across Linux/macOS/Windows smoke jobs and
+publication; it does not create GitHub Actions workflow artifacts.
+
 ## Intermediate agent artifacts
 
 Session-specific form JSON, decision drafts, research captures and generated

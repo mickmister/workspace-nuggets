@@ -46,7 +46,7 @@ const usage = `Usage:
   nugs beads sync [--root DIR]
   nugs beads restore --root DIR --data-dir DIR --collection-id ID --dolt-commit HASH
   nugs beads catch-up [--root DIR] --dolt-commit HASH
-  nugs documents list
+  nugs documents list [--prefix PATH] [--limit N] [--token TOKEN] [--snapshot COMMIT] [--all]
   nugs documents read --name NAME
   nugs documents upsert --name NAME [--expected VERSION] [--file FILE|-]
   nugs runs create --run ID --purpose TEXT [--task REFERENCE]
@@ -70,6 +70,18 @@ Agent workflow:
 
 type repositoryFlags []string
 
+func commandHelp(out io.Writer, group string) {
+	fmt.Fprintln(out, "Usage:")
+	for _, line := range strings.Split(usage, "\n") {
+		if strings.HasPrefix(line, "  nugs "+group+" ") {
+			fmt.Fprintln(out, line)
+		}
+	}
+	if group == "documents" {
+		fmt.Fprintln(out, "\nList defaults to 20 resources (maximum 100 per page). Follow page.next_token with --token; continuation stays on page.snapshot even when new documents arrive. --prefix narrows names, --all explicitly requests a full inventory. Output is indented JSON metadata; read a selected document with documents read --name NAME.")
+	}
+}
+
 func (r *repositoryFlags) String() string         { return fmt.Sprint([]string(*r)) }
 func (r *repositoryFlags) Set(value string) error { *r = append(*r, value); return nil }
 
@@ -83,6 +95,12 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 		return 0
 	}
 	operation := args[0]
+	// Help is structural discovery: it must work before configuration, workspace
+	// attachment, transport access or operation execution.
+	if len(args) >= 2 && (args[1] == "--help" || args[1] == "-h" || args[1] == "help") {
+		commandHelp(stdout, args[0])
+		return 0
+	}
 	if operation != "mcp" {
 		if len(args) < 2 {
 			fmt.Fprint(stderr, usage)
@@ -95,6 +113,7 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 	}
 	flags := flag.NewFlagSet("nugs "+operation, flag.ContinueOnError)
 	flags.SetOutput(stderr)
+	flags.Usage = func() {} // Handle ErrHelp below, without resolving a workspace.
 	remote := flags.String("remote", "", "Git URL or repository path")
 	configFile := flags.String("config", "", "config file (default: user config directory/nugs/config.json)")
 	cache := flags.String("cache", "", "local transaction cache")
@@ -102,6 +121,8 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 	workspaceRef := flags.String("workspace-ref", "", "stable registered workspace reference")
 	engagement := flags.String("engagement", "", "engagement policy for explicit workspace setup")
 	name := flags.String("name", "", "relative document name")
+	prefix := flags.String("prefix", "", "document name prefix for discovery")
+	all := flags.Bool("all", false, "explicitly list all matching document metadata")
 	expected := flags.String("expected", "", "observed version; empty means create only")
 	file := flags.String("file", "-", "content file or - for stdin")
 	root := flags.String("root", ".", "workspace root for repository memberships")
@@ -131,6 +152,10 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 	var repositories repositoryFlags
 	flags.Var(&repositories, "repo", "repository path relative to --root; repeat for all memberships")
 	if err := flags.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			commandHelp(stdout, strings.SplitN(operation, ".", 2)[0])
+			return 0
+		}
 		return 2
 	}
 	if flags.NArg() != 0 {
@@ -139,6 +164,15 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 	}
 	seen := map[string]bool{}
 	flags.Visit(func(f *flag.Flag) { seen[f.Name] = true })
+	if operation == "documents.list" {
+		if !seen["limit"] {
+			*limit = defaultDocumentLimit
+		}
+		if *limit < 1 || *limit > 100 || (*all && (seen["limit"] || *token != "")) {
+			fmt.Fprintln(stderr, "documents list: --limit must be 1–100; --all cannot be combined with --limit or --token")
+			return 2
+		}
+	}
 	if strings.HasPrefix(operation, "beads.") && !seen["root"] {
 		*root = "" // Discover the workspace redirect, never a repository database.
 	}
@@ -344,6 +378,7 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 	req.Target, req.Database, req.NativeVersion, req.Session, req.Role, req.Reader, req.Token, req.Limit, req.Aliases = *target, *database, *nativeVersion, *session, *role, *reader, *token, *limit, aliases
 	req.VKDatabase, req.VKWorkspace = *vkDatabase, *vkWorkspace
 	req.OtherTarget = *otherTarget
+	req.Prefix, req.All = *prefix, *all
 	req.Category, req.Source = *category, *source
 	if operation == "media.import" {
 		req.Purpose = *mediaFilename
@@ -397,7 +432,11 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 		response.Media.ContentBase64 = ""
 		response.Media.OutputFile = *file
 	}
-	if err := json.NewEncoder(stdout).Encode(response); err != nil {
+	encoder := json.NewEncoder(stdout)
+	if operation == "documents.list" {
+		encoder.SetIndent("", "  ")
+	}
+	if err := encoder.Encode(response); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}

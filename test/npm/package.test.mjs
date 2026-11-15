@@ -35,6 +35,8 @@ test('the actual npm tarball installs without scripts, runs the CLI and contains
   assert.equal(run(['--version']).trim(), `nugs ${version}`);
   assert.equal(npm(['exec', '--offline', '--prefix', prefix, '--', 'nugs', '--version']).trim(), `nugs ${version}`);
   assert.match(run(['--help']), /Usage:/);
+  assert.match(run(['documents', '--help']), /page.next_token/);
+  assert.match(run(['documents', 'list', '--help']), /--prefix/);
   assert.throws(() => run(['unknown-command']), error => error.status === 2);
   assert.ok(statSync(path.join(installed, binaryPath(process.platform, process.arch))).size > 1024);
   // Rebuilding from the installed package proves source inclusion is complete,
