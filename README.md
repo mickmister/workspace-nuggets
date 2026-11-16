@@ -93,6 +93,62 @@ receipts also identify the published commit, SHA-256, byte length and inferred
 media type. An unchanged upsert with the current version creates no new commit.
 Omitting `--expected` means **create only**, not unconditional overwrite.
 
+### Unbound remote workspace intake
+
+A fresh runner can discover workspaces before attaching a directory. Operators
+configure authorized Git storage repositories; nugs never enumerates arbitrary
+GitHub repositories or accepts an agent-supplied discovery remote:
+
+```sh
+nugs config workspace-store --target team --engagement my-engagement --remote https://example.com/private/storage.git
+nugs workspace discover --target team --limit 20
+nugs workspace discover --target team --token "$NEXT_TOKEN"
+# Optional structural narrowing, not semantic routing:
+nugs workspace discover --target team --prefix feature-
+# When the agent decides no existing workspace fits:
+nugs workspace create --target team --workspace new-topic --purpose "Investigate a new topic"
+# Attach an existing runner directory to the selected namespace:
+nugs workspace select --target team --workspace new-topic --root /path/to/workspace
+```
+
+`config set --engagement ... --remote ...` also supplies a store named `default`
+unless an explicit store of that name exists. Named stores are persisted in
+`workspace_stores` in the selected config file, with `remote` and `engagement`.
+Relative configured repository paths resolve against that config file. Existing
+attachments are never retargeted by these settings.
+
+Discovery returns `discovery.workspaces` with the configured target, handle,
+engagement, observed document commit, exact manifest version and purpose/source
+membership manifest. It reads only configured stores' `refs/documents/*`, not
+source branches, Dolt history, messages or telemetry. Missing/invalid manifests
+remain visible as per-entry errors; transport failure fails the operation instead
+of pretending no workspace exists. Assess these errors before deciding to create.
+Discovery does not install a binding or restore a native session.
+
+Results default to 20 entries (maximum 100). Continue with
+`discovery.next_token`, repeating the same target/prefix. Tokens are bound to the
+configuration and filters. Pages observe current refs, not one cross-store
+snapshot: new handles sorting before an already returned cursor require a new
+first page. Each returned manifest is read at its recorded commit. Git ref
+enumeration itself is not paginated by the Git protocol; manifest reads and output
+are bounded to the requested page.
+
+The agent owns semantic selection and automatic creation. Creation uses the one
+configured store, or requires `--target` when several exist. It publishes a
+create-only purpose/membership manifest with verified normal document receipts;
+an existing different manifest conflicts. It does not create a storage repository,
+initialize Beads, attach a directory or invent ownership/configuration. Selection
+verifies the manifest and reuses native registry attachment/conflict rules.
+`workspace_ref` remains a machine registry identity, not a newly introduced global
+remote identity; selected-Bead native restore still uses its existing handoff.
+
+`nugs mcp` starts without an attachment and exposes `workspaces_discover`,
+`workspace_create` and `workspace_select` with the same configuration and service
+operations. Ordinary tools still require their normal attachment. Existing
+trusted explicit `mcp --remote ... --workspace ...` transport adapters remain
+supported. Known workspace/thread routes continue to resolve their compact native
+binding directly; discovery is a fallback, independent of QRSPI+/ACP or a scheduler.
+
 ### Bounded document discovery
 
 `nugs documents list` returns **20 metadata resources by default**, indented as one

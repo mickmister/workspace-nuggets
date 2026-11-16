@@ -11,6 +11,7 @@ import (
 
 // Service is the common boundary used directly by CLI and MCP handlers.
 type Service struct {
+	WorkspaceStores    map[string]WorkspaceStore
 	Remote             string
 	CacheDir           string
 	DefaultWorkspace   string
@@ -53,6 +54,7 @@ type DocumentView struct {
 }
 
 type Response struct {
+	Discovery          *WorkspaceDiscovery   `json:"discovery,omitempty"`
 	Page               *DocumentPage         `json:"page,omitempty"`
 	NugTypes           []string              `json:"nug_types,omitempty"`
 	Media              *MediaResult          `json:"media,omitempty"`
@@ -84,6 +86,9 @@ func ResourceURI(workspace, name string) string {
 }
 
 func (s Service) Execute(ctx context.Context, req Request) Response {
+	if req.Operation == "workspace.discover" || req.Operation == "workspace.create" || req.Operation == "workspace.select" {
+		return s.executeWorkspaceDiscovery(ctx, req)
+	}
 	var binding *WorkspaceBinding
 	var registry Registry
 	var workspaceRoot string

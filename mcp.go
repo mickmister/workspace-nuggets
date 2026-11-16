@@ -17,6 +17,17 @@ type workspaceInput struct {
 	WorkspaceReference string `json:"workspace_ref,omitempty" jsonschema:"Stable reference returned by workspace discovery; scoped to the current engagement"`
 }
 
+type workspaceDiscoveryInput struct {
+	Target       string   `json:"target,omitempty" jsonschema:"Configured workspace store name; required for creation/selection when multiple stores exist"`
+	Workspace    string   `json:"workspace,omitempty" jsonschema:"Exact workspace handle for creation or selection"`
+	Prefix       string   `json:"prefix,omitempty" jsonschema:"Structural handle prefix for discovery; agents assess returned purpose and memberships"`
+	Limit        int      `json:"limit,omitempty" jsonschema:"Discovery page size; default 20, maximum 100"`
+	Token        string   `json:"token,omitempty" jsonschema:"Continuation token; preserves configuration and filter, observes current refs"`
+	Root         string   `json:"root,omitempty" jsonschema:"Existing runner directory to attach or observe repositories within"`
+	Purpose      string   `json:"purpose,omitempty" jsonschema:"Why a newly created workspace exists"`
+	Repositories []string `json:"repositories,omitempty" jsonschema:"Explicit source memberships relative to root for creation"`
+}
+
 type documentListInput struct {
 	Workspace          string `json:"workspace,omitempty"`
 	WorkspaceReference string `json:"workspace_ref,omitempty"`
@@ -96,6 +107,15 @@ func NewMCPServer(service Service) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "nugs", Version: Version}, &mcp.ServerOptions{Instructions: agentArtifactInstructions})
 	addMessageTools(server, service)
 	addMediaTools(server, service)
+	for _, tool := range []struct{ name, operation, description string }{
+		{"workspaces_discover", "workspace.discover", "Discover remote workspace manifests only in operator-configured stores, without an attachment; bounded pages; per-entry errors remain visible; agent owns semantic selection"},
+		{"workspace_create", "workspace.create", "Automatically create a purpose/membership manifest in a configured store when the agent decides no existing workspace fits; create-only, never overwrites a different manifest; does not initialize Beads or attach a directory"},
+		{"workspace_select", "workspace.select", "Verify a selected remote workspace manifest and attach an existing runner directory using native registry contracts; no native Beads restoration"},
+	} {
+		mcp.AddTool(server, &mcp.Tool{Name: tool.name, Description: tool.description}, func(ctx context.Context, _ *mcp.CallToolRequest, in workspaceDiscoveryInput) (*mcp.CallToolResult, Response, error) {
+			return toolResponse(service.Execute(ctx, Request{Operation: tool.operation, Target: in.Target, Workspace: in.Workspace, Prefix: in.Prefix, Limit: in.Limit, Token: in.Token, Root: in.Root, Purpose: in.Purpose, Repositories: in.Repositories}))
+		})
+	}
 	mcp.AddTool(server, &mcp.Tool{Name: "documents_list", Description: "Discover a bounded page of document metadata; use prefix to narrow, page.next_token to continue the same snapshot, or all for an explicit full inventory"}, func(ctx context.Context, _ *mcp.CallToolRequest, in documentListInput) (*mcp.CallToolResult, Response, error) {
 		return toolResponse(service.Execute(ctx, Request{Operation: "documents.list", Workspace: in.Workspace, WorkspaceReference: in.WorkspaceReference,
 			Prefix: in.Prefix, Snapshot: in.Snapshot, Token: in.Token, Limit: in.Limit, All: in.All}))

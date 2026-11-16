@@ -11,10 +11,11 @@ import (
 )
 
 type Config struct {
-	Engagement     string                   `json:"engagement,omitempty"`
-	Remote         string                   `json:"remote,omitempty"`
-	CacheDir       string                   `json:"cache_dir,omitempty"`
-	MessageTargets map[string]MessageTarget `json:"message_targets,omitempty"`
+	WorkspaceStores map[string]WorkspaceStore `json:"workspace_stores,omitempty"`
+	Engagement      string                    `json:"engagement,omitempty"`
+	Remote          string                    `json:"remote,omitempty"`
+	CacheDir        string                    `json:"cache_dir,omitempty"`
+	MessageTargets  map[string]MessageTarget  `json:"message_targets,omitempty"`
 }
 
 func ConfigPath() (string, error) {

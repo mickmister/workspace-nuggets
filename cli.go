@@ -18,6 +18,7 @@ const usage = `Usage:
   nugs config set --remote URL [--cache DIR]
   nugs config show
   nugs config target --target NAME --file PROFILE.json
+  nugs config workspace-store --target NAME --engagement NAME --remote URL
   nugs types list
   nugs media bind --target NAME
   nugs media import --target NAME --name ID --file FILE [--filename NAME] [--category screenshot] [--source URI] [--expected REVISION]
@@ -37,6 +38,9 @@ const usage = `Usage:
   nugs workspace restore --root DIR --data-dir DIR --file HANDOFF.json --remote URL
   nugs workspace context
   nugs workspace list
+  nugs workspace discover [--target STORE] [--prefix HANDLE-PREFIX] [--limit N] [--token TOKEN]
+  nugs workspace create --workspace HANDLE --purpose TEXT [--target STORE] [--repo RELPATH ...] [--root DIR]
+  nugs workspace select --workspace HANDLE --root DIR [--target STORE]
   nugs storage bootstrap
   nugs workspace inspect
   nugs workspace provision [--root DIR] [--repo RELPATH ...] [--purpose TEXT] [--expected VERSION]
@@ -173,6 +177,9 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 			return 2
 		}
 	}
+	if operation == "workspace.discover" && !seen["limit"] {
+		*limit = 20
+	}
 	if strings.HasPrefix(operation, "beads.") && !seen["root"] {
 		*root = "" // Discover the workspace redirect, never a repository database.
 	}
@@ -192,10 +199,34 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	config, err := loadConfig(filename, !seen["config"] || operation == "config.set" || operation == "config.message-target" || operation == "config.target")
+	config, err := loadConfig(filename, !seen["config"] || operation == "config.set" || operation == "config.message-target" || operation == "config.target" || operation == "config.workspace-store")
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
+	}
+	if operation == "config.workspace-store" {
+		err = validateMessageLabel(*target)
+		if err == nil && strings.TrimSpace(*engagement) == "" {
+			err = invalid("workspace store requires --engagement")
+		}
+		if err == nil {
+			err = (Store{Remote: *remote, Workspace: "discovery"}).validate()
+		}
+		if err == nil && !strings.Contains(*remote, ":") {
+			*remote, err = filepath.Abs(*remote)
+		}
+		if err == nil {
+			if config.WorkspaceStores == nil {
+				config.WorkspaceStores = map[string]WorkspaceStore{}
+			}
+			config.WorkspaceStores[*target] = WorkspaceStore{Remote: *remote, Engagement: *engagement}
+			err = saveConfig(filename, config)
+		}
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		return 0
 	}
 	if operation == "config.message-target" || operation == "config.target" {
 		if err := validateMessageLabel(*target); err != nil {
@@ -352,8 +383,13 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 		return 2
 	}
 	binding, _, contextErr := registry.resolve(cwd, *workspaceRef, *workspace)
-	service := Service{RegistryPath: registryPath, ContextDir: cwd, WorkspaceReference: *workspaceRef, MessageTargets: config.MessageTargets}
-	if contextErr != nil {
+	service := Service{RegistryPath: registryPath, ContextDir: cwd, WorkspaceReference: *workspaceRef, MessageTargets: config.MessageTargets, WorkspaceStores: configuredWorkspaceStores(config, filename)}
+	unboundOperation := operation == "workspace.discover" || operation == "workspace.create" || operation == "workspace.select" || operation == "mcp" && !seen["remote"]
+	if unboundOperation && (seen["remote"] || seen["cache"]) {
+		fmt.Fprintln(stderr, "discovery and unbound MCP use configured workspace stores, not transport overrides")
+		return 2
+	}
+	if contextErr != nil && !unboundOperation {
 		// Retain the explicit transport adapter used by existing trusted CI
 		// handoffs. Mutable machine defaults and branch inference never enter it.
 		opErr, unbound := contextErr.(*OperationError)
@@ -363,7 +399,7 @@ func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 			return 2
 		}
 		service = Service{Remote: *remote, CacheDir: *cache, DefaultWorkspace: *workspace}
-	} else if seen["remote"] && *remote != binding.Remote || seen["cache"] && *cache != binding.CacheDir {
+	} else if !unboundOperation && (seen["remote"] && *remote != binding.Remote || seen["cache"] && *cache != binding.CacheDir) {
 		fmt.Fprintln(stderr, "explicit transport/cache conflicts with persistent workspace binding")
 		return 2
 	}
