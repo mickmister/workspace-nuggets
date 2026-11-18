@@ -1,0 +1,127 @@
+name: Publish @mickmister/nugs to npm
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: '0'
+      GOFLAGS: '-tags=gms_pure_go'
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      dist_tag: ${{ steps.release.outputs.dist_tag }}
+      producer_attempt: ${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Set npm version from pushed tag
+        id: release
+        run: node scripts/prepare-release.mjs
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - run: node --test .github/tests/storage-policy.test.mjs
+      - run: go test ./...
+      - run: go vet ./...
+      - name: Build bundled native executables
+        run: npm run build
+      - name: Verify packed CLI and included Go source
+        run: npm run test:package
+      - run: npm pack --ignore-scripts
+      - name: Retain the tested npm tarball in private S3
+        uses: mickmister/gh-agentic-workflows/.github/actions/workflow-files@4a098292ba3d9dd2c271c4e5dc0fb07d8e11d276
+        with:
+          name: npm-package
+          path: mickmister-nugs-*.tgz
+          if-no-files-found: error
+          s3-url: ${{ secrets.S3_CACHE_URL }}
+          s3-region: ${{ secrets.S3_CACHE_REGION }}
+          s3-bucket: ${{ secrets.S3_CACHE_BUCKET }}
+          s3-prefix: ${{ secrets.S3_CACHE_PREFIX }}
+          s3-path-style: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          s3-access-key-id: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          s3-secret-access-key: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+
+  smoke:
+    needs: package
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Retrieve the exact producer package with verified digests
+        uses: mickmister/gh-agentic-workflows/.github/actions/workflow-files@4a098292ba3d9dd2c271c4e5dc0fb07d8e11d276
+        with:
+          operation: get
+          name: npm-package
+          source-attempt: ${{ needs.package.outputs.producer_attempt }}
+          s3-url: ${{ secrets.S3_CACHE_URL }}
+          s3-region: ${{ secrets.S3_CACHE_REGION }}
+          s3-bucket: ${{ secrets.S3_CACHE_BUCKET }}
+          s3-prefix: ${{ secrets.S3_CACHE_PREFIX }}
+          s3-path-style: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          s3-access-key-id: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          s3-secret-access-key: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+      - name: Install and run the actual npm tarball
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.package.outputs.version }}
+        run: |
+          npm install --ignore-scripts --no-audit --no-fund --offline --prefix installed ./mickmister-nugs-*.tgz
+          npm exec --offline --prefix installed -- nugs --help
+          npm exec --offline --prefix installed -- nugs documents --help
+          npm exec --offline --prefix installed -- nugs documents list --help
+          test "$(npm exec --offline --prefix installed -- nugs --version)" = "nugs $RELEASE_VERSION"
+
+  publish:
+    needs: [package, smoke]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Install npm with trusted publishing support
+        run: npm install --global npm@11
+      - name: Retrieve the package tested on every platform
+        uses: mickmister/gh-agentic-workflows/.github/actions/workflow-files@4a098292ba3d9dd2c271c4e5dc0fb07d8e11d276
+        with:
+          operation: get
+          name: npm-package
+          source-attempt: ${{ needs.package.outputs.producer_attempt }}
+          s3-url: ${{ secrets.S3_CACHE_URL }}
+          s3-region: ${{ secrets.S3_CACHE_REGION }}
+          s3-bucket: ${{ secrets.S3_CACHE_BUCKET }}
+          s3-prefix: ${{ secrets.S3_CACHE_PREFIX }}
+          s3-path-style: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          s3-access-key-id: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          s3-secret-access-key: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+      - name: Publish the tested tarball using OIDC
+        env:
+          NPM_DIST_TAG: ${{ needs.package.outputs.dist_tag }}
+        run: npm publish ./mickmister-nugs-*.tgz --access public --tag "$NPM_DIST_TAG"

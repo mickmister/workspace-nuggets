@@ -1,0 +1,43 @@
+{
+  "name": "@mickmister/nugs",
+  "version": "0.0.0-development",
+  "description": "Git-backed workspace context, documents and native Beads persistence for agents",
+  "type": "module",
+  "bin": {
+    "nugs": "bin/nugs.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mickmister/workspace-nuggets.git"
+  },
+  "homepage": "https://github.com/mickmister/workspace-nuggets#readme",
+  "bugs": {
+    "url": "https://github.com/mickmister/workspace-nuggets/issues"
+  },
+  "files": [
+    "bin/",
+    "binaries/",
+    "scripts/",
+    "test/npm/",
+    "*.go",
+    "go.mod",
+    "go.sum",
+    "cmd/",
+    "README.md",
+    "DESIGN.md",
+    "S3_NUGS.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build-npm.mjs",
+    "prepack": "npm run build",
+    "test": "node --test test/npm/release.test.mjs",
+    "test:package": "node --test test/npm/package.test.mjs"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}
