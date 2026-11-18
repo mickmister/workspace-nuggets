@@ -13,7 +13,7 @@ for (const target of targets) {
   mkdirSync(path.dirname(output), { recursive: true });
   console.log(`Building nugs ${version} for ${target.platform}/${target.arch}`);
   const result = spawnSync('go', [
-    'build', '-mod=readonly', '-trimpath', '-buildvcs=false',
+    'build', '-mod=readonly', '-tags=gms_pure_go', '-trimpath', '-buildvcs=false',
     '-ldflags', `-s -w -X workspace-nuggets.Version=${version}`,
     '-o', output, './cmd/nugs',
   ], {

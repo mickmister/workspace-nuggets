@@ -2,6 +2,7 @@ package nuggets
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,8 +19,9 @@ type BeadsPublication struct {
 	Branch       string `json:"branch"`
 	// Acknowledgement is not independent verification. False can also mean
 	// an acknowledgement was lost; it is not proof that the push did not land.
-	PushAcknowledged bool `json:"push_acknowledged"`
-	Verified         bool `json:"verified"`
+	PushAcknowledged bool                     `json:"push_acknowledged"`
+	Verified         bool                     `json:"verified"`
+	Serving          *BeadsServingPublication `json:"serving,omitempty"`
 }
 
 type beadsVersion struct {
@@ -99,7 +101,15 @@ func (s Store) verifyBeadsPublication(ctx context.Context, t *transaction, info 
 		if string(afterRefs) != string(refs) {
 			continue
 		}
-		return &BeadsPublication{CollectionID: info.CollectionID, Ref: info.DesiredRef, GitCommit: fields[0], DoltCommit: version.Commit, Branch: version.Branch, Verified: true}, nil
+		serving, err := s.publishBeadsServing(ctx, t, info, fields[0])
+		if err != nil {
+			var conflict *OperationError
+			if errors.As(err, &conflict) && conflict.Code == "serving_conflict" {
+				continue
+			}
+			return nil, err
+		}
+		return &BeadsPublication{CollectionID: info.CollectionID, Ref: info.DesiredRef, GitCommit: fields[0], DoltCommit: version.Commit, Branch: version.Branch, Verified: true, Serving: serving}, nil
 	}
 	return nil, &OperationError{Code: "conflict", Message: "remote advanced during all publication verification attempts; checkpoint retained, retry synchronization"}
 }

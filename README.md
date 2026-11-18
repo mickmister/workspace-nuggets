@@ -373,6 +373,39 @@ A rejected push retains the local checkpoint and leaves remote reconciliation fo
 an explicit next step. Publication does not pull or resolve conflicts, initialize
 a collection, enable auto-push, or bootstrap the storage repo implicitly.
 
+### Browser current-state serving packs
+
+After native publication is independently recovered and verified, `beads publish`
+and `beads sync` also publish a derived native NBS pack under
+`refs/beads/<workspace>`. The publication receipt includes `serving.ref`,
+`serving.git_commit`, `serving.encoded_bytes` and `serving.files`. Canonical Dolt
+history under `refs/dolt/<workspace>` is unchanged. The derived ref is not a Dolt
+remote and must never be used for native restoration or pushed over canonical data.
+
+The `serving.json` schema (`schemaVersion: 1`, `format: beads-current-head-v1`)
+records the exact source Git commit, workspace/collection identity, original native
+manifest, storage root, selected main Dolt commit/current root and SHA-256/size of
+each file. Generation reads an immutable published Git snapshot in a disposable
+directory, verifies decoded chunk hashes, walks current-root references, and skips
+commit-parent traversal. No live embedded DB is opened by a second engine. No issue
+JSON export, SQL rewrite, history pruning or public payload CDN is involved.
+
+Identical publication reuses the existing serving commit; updates use normal
+non-force Git pushes. Source advances and conflicting serving writers fail rather
+than deliberately replacing a newer pack with stale data. Native publication may
+already have succeeded when serving publication fails: retry synchronization.
+Publication and serving refs are separate, so readers must match the descriptor's
+source commit against their selected canonical snapshot, never silently display an
+old pack. Older publishers do not regenerate packs; use a pack-capable published
+npm release for all workspace synchronization writers.
+
+Pack admission matches current browser limits (64 MiB encoded, 256 MiB decoded,
+100,000 chunks; individual pack files at most 16 MiB). These are not general Dolt
+capacity guarantees. Publisher-side source decoding has a separate 2 GiB / one
+million chunk bound. The portable codec follows the verified browser decoder;
+Go source builds/tests use `-tags=gms_pure_go` and Go 1.26.2. Bundled npm binaries
+need no Go compiler or C compression library.
+
 For ordinary peer synchronization, use `nugs beads sync` (MCP `beads_sync`).
 It checkpoints and publishes, then fetches and clean-merges the verified peer
 checkpoint if the push is rejected, with at most three publication attempts.

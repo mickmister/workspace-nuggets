@@ -15,6 +15,9 @@ concurrency:
 jobs:
   package:
     runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: '0'
+      GOFLAGS: '-tags=gms_pure_go'
     outputs:
       version: ${{ steps.release.outputs.version }}
       dist_tag: ${{ steps.release.outputs.dist_tag }}
