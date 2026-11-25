@@ -21,3 +21,19 @@ func TestStandaloneManifestPurpose(t *testing.T) {
 		}
 	}
 }
+
+func TestBranchManifestDoesNotNeedObservedCommit(t *testing.T) {
+	base := `{"schema_version":1,"workspace":"branch","observed_at":"2026-11-25T00:00:00Z","repositories":[`
+	for _, entry := range []string{
+		`{"path":"app","branch":"refs/heads/main","publication":"no_remote"}`,
+		`{"path":"app","branch":"refs/heads/main","commit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","publication":"no_remote"}`,
+		`{"path":"app","detached":true,"commit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","publication":"no_remote"}`,
+	} {
+		if _, err := parseManifest([]byte(base+entry+`]}`), "branch"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := parseManifest([]byte(base+`{"path":"app","detached":true,"publication":"no_remote"}]}`), "branch"); err == nil {
+		t.Fatal("detached source without an explicit revision accepted")
+	}
+}

@@ -24,7 +24,7 @@ type RepositoryRemote struct {
 type RepositoryPointer struct {
 	Path        string             `json:"path"`
 	Branch      string             `json:"branch,omitempty"`
-	Commit      string             `json:"commit"`
+	Commit      string             `json:"commit,omitempty"`
 	Detached    bool               `json:"detached"`
 	Dirty       bool               `json:"dirty"`
 	Remotes     []RepositoryRemote `json:"remotes"`
@@ -69,7 +69,10 @@ func parseManifest(content []byte, workspace string) (*Manifest, error) {
 			return bad("repository paths must be unique safe relative paths")
 		}
 		seen[repo.Path] = true
-		if len(repo.Commit) != 40 && len(repo.Commit) != 64 {
+		// Branch pointers select the current remote branch, not a historical
+		// observation of local HEAD. Only detached pointers need a source pin.
+		// Accept old branch observations for historical manifest readback.
+		if repo.Detached && repo.Commit == "" || repo.Commit != "" && len(repo.Commit) != 40 && len(repo.Commit) != 64 {
 			return bad("repository commit must be a full Git object ID")
 		}
 		for _, c := range repo.Commit {
@@ -177,7 +180,10 @@ func (s Store) ObserveManifestWithPurpose(ctx context.Context, root string, repo
 		if err != nil {
 			return nil, err
 		}
-		pointer := RepositoryPointer{Path: filepath.ToSlash(relative), Branch: branch, Commit: commit, Detached: branch == "", Dirty: status != "", Remotes: []RepositoryRemote{}, Publication: "no_remote"}
+		pointer := RepositoryPointer{Path: filepath.ToSlash(relative), Branch: branch, Detached: branch == "", Dirty: status != "", Remotes: []RepositoryRemote{}, Publication: "no_remote"}
+		if pointer.Detached {
+			pointer.Commit = commit
+		}
 		remotes, err := read("remote")
 		if err != nil {
 			return nil, err

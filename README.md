@@ -295,11 +295,17 @@ The versioned manifest contains:
 - Workspace identity, schema version and observation timestamp.
 - Optional `purpose`; required when the repository list is omitted or empty.
 - All selected repository membership paths relative to the workspace root.
-- Each current full branch ref and exact commit OID, or explicit detached HEAD.
+- Each full branch ref, without a previously observed commit. A detached HEAD
+  retains its explicit commit OID because it has no branch to resolve.
 - Working-tree dirty state and configured fetch remotes, with URL auth fields
   removed from observed HTTP URLs and passwords removed from SSH URLs.
-- `publication: "unverified"` or `"no_remote"`; capturing a commit does not prove
-  its branch/objects exist on another machine.
+- `publication: "unverified"` or `"no_remote"`; observing a local branch or
+  detached commit does not prove its branch/objects exist on another machine.
+
+Branch consumers resolve the configured remote branch at execution start and
+retain those exact resolved commits in execution evidence, not in this membership
+manifest. Older schema-v1 manifests with observed branch commits remain readable;
+those observations must not override the branch for new current-source work.
 
 Inspection returns `manifest_required` for a namespace without the manifest.
 Low-level document list/read/upsert remain available to bootstrap or repair such

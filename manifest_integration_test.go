@@ -2,6 +2,7 @@ package nuggets
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -41,13 +42,13 @@ func TestWorkspaceManifestOverHTTP(t *testing.T) {
 		t.Fatalf("missing workspace membership: %+v", manifest)
 	}
 	first, second := manifest.Repositories[0], manifest.Repositories[1]
-	if first.Path != "alpha" || first.Branch != "refs/heads/feature/workspace" || first.Commit != g.run(a, "", "git", "rev-parse", "HEAD") || !first.Dirty || first.Detached {
+	if first.Path != "alpha" || first.Branch != "refs/heads/feature/workspace" || first.Commit != "" || !first.Dirty || first.Detached {
 		t.Fatalf("incorrect branch pointer: %+v", first)
 	}
 	if first.Publication != "unverified" || len(first.Remotes) != 1 || first.Remotes[0].URL != "https://example.invalid/org/code.git" {
 		t.Fatalf("remote credentials or publication assertion: %+v", first)
 	}
-	if second.Path != "beta" || !second.Detached || second.Branch != "" || second.Publication != "no_remote" || second.Dirty {
+	if second.Path != "beta" || !second.Detached || second.Branch != "" || second.Commit != g.run(b, "", "git", "rev-parse", "HEAD") || second.Publication != "no_remote" || second.Dirty {
 		t.Fatalf("detached/missing remote not explicit: %+v", second)
 	}
 	reader := g.store(store.Workspace)
@@ -58,6 +59,15 @@ func TestWorkspaceManifestOverHTTP(t *testing.T) {
 	doc, err := reader.Read(ctx, ManifestDocument)
 	if err != nil || strings.Contains(string(doc.Content), "password") || strings.Contains(string(doc.Content), "secret") || strings.Contains(string(doc.Content), g.root) {
 		t.Fatalf("manifest exposes credentials or machine paths: %s, %v", doc.Content, err)
+	}
+	var encoded struct {
+		Repositories []map[string]json.RawMessage `json:"repositories"`
+	}
+	if err := json.Unmarshal(doc.Content, &encoded); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := encoded.Repositories[0]["commit"]; exists {
+		t.Fatal("branch manifest retained an observed commit")
 	}
 	g.run(a, "", "git", "checkout", "-b", "feature/new-pointer")
 	updated, next, err := store.Provision(ctx, g.root, []string{"alpha", "beta"}, receipt.Version)

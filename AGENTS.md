@@ -49,7 +49,7 @@ engagement policy, or creates private local storage when no policy exists;
 `workspace attach` preserves a selected existing namespace. Machine defaults and
 branch changes never retarget existing bindings. Use returned `workspace_ref`
 values for explicit same-engagement selection; missing/ambiguous bindings fail.
-Each manifest records actual repository branch refs and commits separately from
+Each manifest records repository branch refs (or explicit detached commit pins) separately from
 the persisted readable storage handle. Setup does not migrate existing data.
 
 Use the workspace-root `.beads/redirect` collection for task tracking and run `bd`
