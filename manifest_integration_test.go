@@ -23,7 +23,6 @@ func TestWorkspaceManifestOverHTTP(t *testing.T) {
 	a := sourceRepository(t, g, "alpha")
 	b := sourceRepository(t, g, "beta")
 	g.run(a, "", "git", "remote", "add", "origin", "https://user:password@example.invalid/org/code.git?token=secret")
-	g.run(b, "", "git", "checkout", "--detach", "HEAD")
 	if err := os.WriteFile(filepath.Join(a, "untracked.txt"), []byte("local only"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -42,14 +41,14 @@ func TestWorkspaceManifestOverHTTP(t *testing.T) {
 		t.Fatalf("missing workspace membership: %+v", manifest)
 	}
 	first, second := manifest.Repositories[0], manifest.Repositories[1]
-	if first.Path != "alpha" || first.Branch != "refs/heads/feature/workspace" || first.Commit != "" || !first.Dirty || first.Detached {
+	if first.Path != "alpha" || first.Branch != "refs/heads/feature/workspace" || !first.Dirty {
 		t.Fatalf("incorrect branch pointer: %+v", first)
 	}
 	if first.Publication != "unverified" || len(first.Remotes) != 1 || first.Remotes[0].URL != "https://example.invalid/org/code.git" {
 		t.Fatalf("remote credentials or publication assertion: %+v", first)
 	}
-	if second.Path != "beta" || !second.Detached || second.Branch != "" || second.Commit != g.run(b, "", "git", "rev-parse", "HEAD") || second.Publication != "no_remote" || second.Dirty {
-		t.Fatalf("detached/missing remote not explicit: %+v", second)
+	if second.Path != "beta" || second.Branch != "refs/heads/feature/workspace" || second.Publication != "no_remote" || second.Dirty {
+		t.Fatalf("branch/missing remote not explicit: %+v", second)
 	}
 	reader := g.store(store.Workspace)
 	snapshot, err := reader.Inspect(ctx)
@@ -66,9 +65,18 @@ func TestWorkspaceManifestOverHTTP(t *testing.T) {
 	if err := json.Unmarshal(doc.Content, &encoded); err != nil {
 		t.Fatal(err)
 	}
-	if _, exists := encoded.Repositories[0]["commit"]; exists {
-		t.Fatal("branch manifest retained an observed commit")
+	for _, repo := range encoded.Repositories {
+		for _, field := range []string{"commit", "detached"} {
+			if _, exists := repo[field]; exists {
+				t.Fatalf("branch manifest retained %s", field)
+			}
+		}
 	}
+	g.run(b, "", "git", "checkout", "--detach", "HEAD")
+	if _, err := store.ObserveManifest(ctx, g.root, []string{"beta"}); err == nil {
+		t.Fatal("detached workspace member accepted")
+	}
+	g.run(b, "", "git", "checkout", "feature/workspace")
 	g.run(a, "", "git", "checkout", "-b", "feature/new-pointer")
 	updated, next, err := store.Provision(ctx, g.root, []string{"alpha", "beta"}, receipt.Version)
 	if err != nil || updated.Repositories[0].Branch != "refs/heads/feature/new-pointer" {

@@ -23,9 +23,7 @@ type RepositoryRemote struct {
 
 type RepositoryPointer struct {
 	Path        string             `json:"path"`
-	Branch      string             `json:"branch,omitempty"`
-	Commit      string             `json:"commit,omitempty"`
-	Detached    bool               `json:"detached"`
+	Branch      string             `json:"branch"`
 	Dirty       bool               `json:"dirty"`
 	Remotes     []RepositoryRemote `json:"remotes"`
 	Publication string             `json:"publication"`
@@ -69,19 +67,8 @@ func parseManifest(content []byte, workspace string) (*Manifest, error) {
 			return bad("repository paths must be unique safe relative paths")
 		}
 		seen[repo.Path] = true
-		// Branch pointers select the current remote branch, not a historical
-		// observation of local HEAD. Only detached pointers need a source pin.
-		// Accept old branch observations for historical manifest readback.
-		if repo.Detached && repo.Commit == "" || repo.Commit != "" && len(repo.Commit) != 40 && len(repo.Commit) != 64 {
-			return bad("repository commit must be a full Git object ID")
-		}
-		for _, c := range repo.Commit {
-			if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
-				return bad("repository commit must be hexadecimal")
-			}
-		}
-		if repo.Detached && repo.Branch != "" || !repo.Detached && !strings.HasPrefix(repo.Branch, "refs/heads/") {
-			return bad("repository branch must be a full branch ref, or omitted for detached HEAD")
+		if !strings.HasPrefix(repo.Branch, "refs/heads/") || strings.TrimPrefix(repo.Branch, "refs/heads/") == "" {
+			return bad("repository branch must be a full branch ref; workspace members require branches")
 		}
 		if repo.Publication != "unverified" && repo.Publication != "no_remote" {
 			return bad("repository publication must disclose unverified or no_remote")
@@ -173,17 +160,14 @@ func (s Store) ObserveManifestWithPurpose(ctx context.Context, root string, repo
 			return nil, fmt.Errorf("repository %s needs a committed HEAD: %w", relative, err)
 		}
 		branch, err := read("symbolic-ref", "--quiet", "HEAD")
-		if err != nil && !exitCode(err, 1) {
-			return nil, err
+		if err != nil || branch == "" {
+			return nil, invalid("repository must select a branch: " + relative)
 		}
 		status, err := read("--no-optional-locks", "status", "--porcelain=v1", "--untracked-files=normal")
 		if err != nil {
 			return nil, err
 		}
-		pointer := RepositoryPointer{Path: filepath.ToSlash(relative), Branch: branch, Detached: branch == "", Dirty: status != "", Remotes: []RepositoryRemote{}, Publication: "no_remote"}
-		if pointer.Detached {
-			pointer.Commit = commit
-		}
+		pointer := RepositoryPointer{Path: filepath.ToSlash(relative), Branch: branch, Dirty: status != "", Remotes: []RepositoryRemote{}, Publication: "no_remote"}
 		remotes, err := read("remote")
 		if err != nil {
 			return nil, err

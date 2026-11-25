@@ -27,13 +27,12 @@ func TestBranchManifestDoesNotNeedObservedCommit(t *testing.T) {
 	for _, entry := range []string{
 		`{"path":"app","branch":"refs/heads/main","publication":"no_remote"}`,
 		`{"path":"app","branch":"refs/heads/main","commit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","publication":"no_remote"}`,
-		`{"path":"app","detached":true,"commit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","publication":"no_remote"}`,
 	} {
 		if _, err := parseManifest([]byte(base+entry+`]}`), "branch"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := parseManifest([]byte(base+`{"path":"app","detached":true,"publication":"no_remote"}]}`), "branch"); err == nil {
-		t.Fatal("detached source without an explicit revision accepted")
+	if _, err := parseManifest([]byte(base+`{"path":"app","detached":true,"commit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","publication":"no_remote"}]}`), "branch"); err == nil {
+		t.Fatal("workspace member without a branch accepted")
 	}
 }
